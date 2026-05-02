@@ -1,0 +1,71 @@
+# Gramli local development data
+# Contains local config, SQLite DBs, logs, sessions, cookies, cache, exports, and downloads.
+.gramli/
+
+# Local personal input files
+# Keep real Instagram URLs, exported cookies, and ad hoc import lists out of git.
+data/
+manual/
+saved-links*.txt
+links.txt
+
+# Local databases
+*.db
+*.sqlite
+*.sqlite3
+*.db-shm
+*.db-wal
+*.sqlite-shm
+*.sqlite-wal
+
+# Logs
+*.log
+logs/
+
+# Environment and secrets
+.env
+.env.*
+*.pem
+*.key
+*.crt
+*cookies*.json
+*.session.json
+
+# AI assistant and local context files
+AGENTS.md
+CLAUDE.md
+.claude/
+.codex/
+.cursor/
+.windsurf/
+.continue/
+*.prompt.md
+*.context.md
+context.md
+
+# Go build and test artifacts
+bin/
+dist/
+build/
+coverage.out
+coverage.html
+*.test
+*.prof
+*.pprof
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.bak
+*.swp
+*.swo
+
+# Editor and IDE metadata
+.vscode/
+.idea/
+*.code-workspace
+
+# macOS metadata
+.DS_Store
+._*
