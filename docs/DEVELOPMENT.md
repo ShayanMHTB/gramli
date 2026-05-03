@@ -34,6 +34,27 @@ mise exec -- go test ./...
 
 Network-dependent behavior should not be required in CI. Use local fixtures and parser tests for Instagram response handling.
 
+When running tests or commands from restricted environments, keep Go caches inside the repo:
+
+```sh
+env \
+  GOCACHE="$PWD/.gramli/cache/go-build" \
+  GOMODCACHE="$PWD/.gramli/cache/gomod" \
+  MISE_CACHE_DIR="$PWD/.gramli/cache/mise" \
+  mise exec -- go test ./...
+```
+
+## Download State Model
+
+Download state is split across:
+
+- `media.download_status`: per-media status used by `download status`
+- `media.local_path`: local file path for direct media downloads or reconciled files
+- `downloads`: append-only attempt records for direct downloads, yt-dlp downloads, missing media, and failures
+- `.gramli/cache/yt-dlp/download-archive.txt`: yt-dlp archive used to skip previously downloaded posts
+
+The `download reconcile` command bridges filesystem state back into SQLite. It scans `.gramli/downloads/<owner>/<shortcode>/`, ignores transient files, prefers completed video files over thumbnails, marks matched media rows as `downloaded`, and marks placeholder URLs as `missing`.
+
 ## Local Artifacts
 
 Do not commit:
@@ -46,3 +67,10 @@ Do not commit:
 - AI assistant context files
 
 These are covered by `.gitignore`.
+
+## Current Developer Notes
+
+- `RecordDownload` stores `NULL` for post-level downloads without a specific media row.
+- `yt-dlp` metadata inspection reads JSON from stdout and warnings from stderr separately.
+- `download clean --cache` preserves the yt-dlp archive; use `--archive` to remove it explicitly.
+- `download status` reports `downloaded`, `pending`, `failed`, `skipped`, `missing`, and `unsupported`.

@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -167,12 +168,13 @@ func downloadCmd(st *appState) *cobra.Command {
 			return err
 		}
 		defer db.Close()
-		fmt.Fprintf(cmd.OutOrStdout(), "Downloaded: %d\nPending: %d\nFailed: %d\nSkipped: %d\n", countMedia(db.DB, "downloaded"), countMedia(db.DB, "pending"), countMedia(db.DB, "failed"), countMedia(db.DB, "skipped"))
+		fmt.Fprintf(cmd.OutOrStdout(), "Downloaded: %d\nPending: %d\nFailed: %d\nSkipped: %d\nMissing: %d\nUnsupported: %d\n", countMedia(db.DB, "downloaded"), countMedia(db.DB, "pending"), countMedia(db.DB, "failed"), countMedia(db.DB, "skipped"), countMedia(db.DB, "missing"), countMedia(db.DB, "unsupported"))
 		return nil
 	}})
 	cmd.AddCommand(&cobra.Command{Use: "retry", Short: "Retry failed downloads", RunE: func(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("download retry is not implemented yet")
 	}})
+	cmd.AddCommand(downloadReconcileCmd(st))
 	cmd.AddCommand(downloadCleanCmd(st))
 	return cmd
 }
@@ -418,13 +420,13 @@ func downloadWithYTDLP(cmd *cobra.Command, db *sql.DB, st *appState, p posts.Pos
 }
 
 func downloadCleanCmd(st *appState) *cobra.Command {
-	var emptyDirs, cache, allDownloads, resetDB bool
+	var emptyDirs, cache, responseCache, archive, allDownloads, resetDB bool
 	cmd := &cobra.Command{
 		Use:   "clean",
 		Short: "Clean transient download files",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if !emptyDirs && !cache && !allDownloads {
-				return fmt.Errorf("select what to clean: --all, --empty-dirs and/or --cache")
+			if !emptyDirs && !cache && !responseCache && !archive && !allDownloads {
+				return fmt.Errorf("select what to clean: --all, --empty-dirs, --cache, --response-cache and/or --archive")
 			}
 			if !st.settings.Yes && !st.settings.DryRun {
 				return fmt.Errorf("download clean removes local files; rerun with --dry-run or --yes")
@@ -454,6 +456,20 @@ func downloadCleanCmd(st *appState) *cobra.Command {
 				}
 				removed += n
 			}
+			if responseCache {
+				n, err := cleanResponseCache(st.settings.DataDir, st.settings.DryRun)
+				if err != nil {
+					return err
+				}
+				removed += n
+			}
+			if archive {
+				n, err := cleanArchive(st.settings.DataDir, st.settings.DryRun)
+				if err != nil {
+					return err
+				}
+				removed += n
+			}
 			if emptyDirs {
 				n, err := cleanEmptyDirs(filepath.Join(st.settings.DataDir, "downloads"), st.settings.DryRun)
 				if err != nil {
@@ -471,11 +487,273 @@ func downloadCleanCmd(st *appState) *cobra.Command {
 	}
 	cmd.Flags().BoolVar(&allDownloads, "all", false, "Remove all files under the downloads directory")
 	cmd.Flags().BoolVar(&emptyDirs, "empty-dirs", false, "Remove empty directories under downloads")
-	cmd.Flags().BoolVar(&cache, "cache", false, "Remove transient downloader cache files")
+	cmd.Flags().BoolVar(&cache, "cache", false, "Remove transient downloader cache files, preserving the yt-dlp archive")
+	cmd.Flags().BoolVar(&responseCache, "response-cache", false, "Remove cached Instagram API/page responses")
+	cmd.Flags().BoolVar(&archive, "archive", false, "Remove yt-dlp download archive")
 	cmd.Flags().BoolVar(&resetDB, "reset-db", false, "Reset local download/media status rows when used with --all")
 	cmd.Flags().Bool("orphans", false, "Reserved for DB-aware orphan cleanup")
 	cmd.Flags().Bool("missing-db-records", false, "Reserved for DB-aware cleanup")
 	return cmd
+}
+
+type downloadReconcileFolder struct {
+	Owner     string   `json:"owner"`
+	Shortcode string   `json:"shortcode"`
+	Path      string   `json:"path"`
+	Files     []string `json:"files"`
+}
+
+type downloadReconcileReport struct {
+	OutputDir       string                    `json:"outputDir"`
+	PostFolders     int                       `json:"postFolders"`
+	MediaFiles      int                       `json:"mediaFiles"`
+	MatchedPosts    int                       `json:"matchedPosts"`
+	OrphanFolders   int                       `json:"orphanFolders"`
+	DBRowsUpdated   int                       `json:"dbRowsUpdated"`
+	DownloadRecords int                       `json:"downloadRecords"`
+	MissingMedia    int                       `json:"missingMedia"`
+	Applied         bool                      `json:"applied"`
+	Orphans         []downloadReconcileFolder `json:"orphans,omitempty"`
+}
+
+func downloadReconcileCmd(st *appState) *cobra.Command {
+	var outputDir string
+	var apply bool
+	cmd := &cobra.Command{
+		Use:   "reconcile",
+		Short: "Compare downloaded files with the local database",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			db, err := openMigratedDB(st)
+			if err != nil {
+				return err
+			}
+			defer db.Close()
+			report, err := reconcileDownloads(cmd, db.DB, outputDir, apply)
+			if err != nil {
+				return err
+			}
+			if st.settings.JSON {
+				return json.NewEncoder(cmd.OutOrStdout()).Encode(report)
+			}
+			action := "Would update"
+			if apply {
+				action = "Updated"
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "Download reconcile complete\n")
+			fmt.Fprintf(cmd.OutOrStdout(), "Output: %s\n", report.OutputDir)
+			fmt.Fprintf(cmd.OutOrStdout(), "Post folders: %d\n", report.PostFolders)
+			fmt.Fprintf(cmd.OutOrStdout(), "Media files: %d\n", report.MediaFiles)
+			fmt.Fprintf(cmd.OutOrStdout(), "Matched DB posts: %d\n", report.MatchedPosts)
+			fmt.Fprintf(cmd.OutOrStdout(), "Orphan folders: %d\n", report.OrphanFolders)
+			fmt.Fprintf(cmd.OutOrStdout(), "%s media rows: %d\n", action, report.DBRowsUpdated)
+			if report.MissingMedia > 0 {
+				fmt.Fprintf(cmd.OutOrStdout(), "%s missing media rows: %d\n", action, report.MissingMedia)
+			}
+			if report.DownloadRecords > 0 {
+				fmt.Fprintf(cmd.OutOrStdout(), "%s download records: %d\n", action, report.DownloadRecords)
+			}
+			if !apply {
+				fmt.Fprintln(cmd.OutOrStdout(), "Run again with --apply to update local download statuses.")
+			}
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&outputDir, "output-dir", filepath.Join(st.settings.DataDir, "downloads"), "Downloads directory to scan")
+	cmd.Flags().BoolVar(&apply, "apply", false, "Update local DB rows from files found on disk")
+	return cmd
+}
+
+func reconcileDownloads(cmd *cobra.Command, db *sql.DB, outputDir string, apply bool) (downloadReconcileReport, error) {
+	folders, err := scanDownloadFolders(outputDir)
+	if err != nil {
+		return downloadReconcileReport{}, err
+	}
+	report := downloadReconcileReport{OutputDir: outputDir, PostFolders: len(folders), Applied: apply}
+	for _, folder := range folders {
+		report.MediaFiles += len(folder.Files)
+		p, err := posts.Get(cmd.Context(), db, folder.Shortcode)
+		if err != nil {
+			if err == sql.ErrNoRows {
+				report.OrphanFolders++
+				report.Orphans = append(report.Orphans, folder)
+				continue
+			}
+			return report, err
+		}
+		report.MatchedPosts++
+		mediaRows, err := posts.ListMedia(cmd.Context(), db, p.ID)
+		if err != nil {
+			return report, err
+		}
+		if len(mediaRows) == 0 {
+			if apply {
+				if err := posts.RecordDownload(cmd.Context(), db, p.ID, 0, "downloaded", folder.Path, ""); err != nil {
+					return report, err
+				}
+			}
+			report.DownloadRecords++
+			continue
+		}
+		used := map[string]bool{}
+		for _, media := range mediaRows {
+			if mediaAlreadyDownloaded(media) {
+				continue
+			}
+			if placeholderMediaURL(media.RemoteURL) {
+				if apply {
+					if err := posts.MarkMediaStatus(cmd.Context(), db, media.ID, "missing"); err != nil {
+						return report, err
+					}
+					if err := posts.RecordDownload(cmd.Context(), db, p.ID, media.ID, "missing", folder.Path, "Instagram metadata returned a placeholder media URL"); err != nil {
+						return report, err
+					}
+				}
+				report.MissingMedia++
+				report.DownloadRecords++
+				continue
+			}
+			if len(folder.Files) == 0 {
+				continue
+			}
+			localPath := chooseReconciledFile(media, folder.Files, used)
+			if localPath == "" {
+				continue
+			}
+			if apply {
+				info, err := os.Stat(localPath)
+				if err != nil {
+					return report, err
+				}
+				if err := posts.MarkMediaDownloaded(cmd.Context(), db, media.ID, localPath, info.Size()); err != nil {
+					return report, err
+				}
+				if err := posts.RecordDownload(cmd.Context(), db, p.ID, media.ID, "downloaded", localPath, ""); err != nil {
+					return report, err
+				}
+			}
+			used[localPath] = true
+			report.DBRowsUpdated++
+			report.DownloadRecords++
+		}
+	}
+	return report, nil
+}
+
+func scanDownloadFolders(root string) ([]downloadReconcileFolder, error) {
+	owners, err := os.ReadDir(root)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	var folders []downloadReconcileFolder
+	for _, owner := range owners {
+		if !owner.IsDir() {
+			continue
+		}
+		ownerPath := filepath.Join(root, owner.Name())
+		postsDirs, err := os.ReadDir(ownerPath)
+		if err != nil {
+			return nil, err
+		}
+		for _, postDir := range postsDirs {
+			if !postDir.IsDir() {
+				continue
+			}
+			dir := filepath.Join(ownerPath, postDir.Name())
+			files, err := completedMediaFiles(dir)
+			if err != nil {
+				return nil, err
+			}
+			folders = append(folders, downloadReconcileFolder{
+				Owner:     owner.Name(),
+				Shortcode: postDir.Name(),
+				Path:      dir,
+				Files:     files,
+			})
+		}
+	}
+	return folders, nil
+}
+
+func mediaAlreadyDownloaded(media posts.Media) bool {
+	if media.Status != "downloaded" || media.LocalPath == "" {
+		return false
+	}
+	info, err := os.Stat(media.LocalPath)
+	return err == nil && info.Size() > 0
+}
+
+func placeholderMediaURL(remoteURL string) bool {
+	return strings.Contains(remoteURL, "/rsrc.php/null.jpg") || strings.HasSuffix(remoteURL, "/null.jpg")
+}
+
+func completedMediaFiles(dir string) ([]string, error) {
+	var videos, images []string
+	err := filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			return nil
+		}
+		name := strings.ToLower(d.Name())
+		if strings.HasSuffix(name, ".part") ||
+			strings.HasSuffix(name, ".ytdl") ||
+			strings.HasSuffix(name, ".tmp") ||
+			strings.Contains(name, ".compat.tmp.") ||
+			strings.HasSuffix(name, ".info.json") ||
+			name == "post.json" ||
+			name == "post.md" {
+			return nil
+		}
+		ext := strings.ToLower(filepath.Ext(name))
+		switch ext {
+		case ".mp4", ".mov", ".m4v", ".webm":
+			videos = append(videos, path)
+		case ".jpg", ".jpeg", ".png", ".webp", ".heic":
+			images = append(images, path)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	if len(videos) > 0 {
+		return videos, nil
+	}
+	return images, nil
+}
+
+func chooseReconciledFile(media posts.Media, files []string, used map[string]bool) string {
+	prefix := fmt.Sprintf("%02d_", media.MediaIndex)
+	for _, file := range files {
+		if used[file] {
+			continue
+		}
+		if strings.HasPrefix(filepath.Base(file), prefix) {
+			return file
+		}
+	}
+	for _, file := range files {
+		if used[file] {
+			continue
+		}
+		ext := strings.ToLower(filepath.Ext(file))
+		if media.MediaType == "video" && (ext == ".mp4" || ext == ".mov" || ext == ".m4v" || ext == ".webm") {
+			return file
+		}
+		if media.MediaType == "image" && (ext == ".jpg" || ext == ".jpeg" || ext == ".png" || ext == ".webp" || ext == ".heic") {
+			return file
+		}
+	}
+	for _, file := range files {
+		if !used[file] {
+			return file
+		}
+	}
+	return ""
 }
 
 type ytdlpMetadata struct {
@@ -488,13 +766,20 @@ type ytdlpMetadata struct {
 
 func ytdlpInfo(ctx context.Context, ytDLP, cookiePath, postURL string) (ytdlpMetadata, error) {
 	args := []string{"--cookies", cookiePath, "--no-playlist", "--dump-single-json", "--skip-download", postURL}
-	out, err := exec.CommandContext(ctx, ytDLP, args...).CombinedOutput()
+	command := exec.CommandContext(ctx, ytDLP, args...)
+	var stderr bytes.Buffer
+	command.Stderr = &stderr
+	out, err := command.Output()
 	if err != nil {
-		return ytdlpMetadata{}, fmt.Errorf("%w: %s", err, strings.TrimSpace(string(out)))
+		return ytdlpMetadata{}, fmt.Errorf("%w: %s", err, strings.TrimSpace(stderr.String()))
 	}
 	var info ytdlpMetadata
 	if err := json.Unmarshal(out, &info); err != nil {
-		return ytdlpMetadata{}, err
+		message := strings.TrimSpace(stderr.String())
+		if message == "" {
+			return ytdlpMetadata{}, err
+		}
+		return ytdlpMetadata{}, fmt.Errorf("%w: %s", err, message)
 	}
 	if info.Uploader == "" {
 		info.Uploader = firstNonEmpty(info.Channel, info.Creator)
@@ -566,7 +851,6 @@ func cleanupTransientDownloadFiles(dir string) error {
 func cleanDownloadCache(dataDir string, dryRun bool) (int, error) {
 	targets := []string{
 		filepath.Join(dataDir, "cache", "yt-dlp", "cookies.txt"),
-		filepath.Join(dataDir, "cache", "yt-dlp", "download-archive.txt"),
 		filepath.Join(dataDir, "cache", "audio-check-DQLq3MEkgg4.wav"),
 		filepath.Join(dataDir, "cache", "DQLq3MEkgg4-audio-check.m4a"),
 	}
@@ -586,6 +870,45 @@ func cleanDownloadCache(dataDir string, dryRun bool) (int, error) {
 		}
 	}
 	return removed, nil
+}
+
+func cleanResponseCache(dataDir string, dryRun bool) (int, error) {
+	targets := []string{
+		filepath.Join(dataDir, "cache", "saved"),
+		filepath.Join(dataDir, "cache", "posts"),
+	}
+	removed := 0
+	for _, target := range targets {
+		if _, err := os.Stat(target); err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return removed, err
+		}
+		removed++
+		if !dryRun {
+			if err := os.RemoveAll(target); err != nil {
+				return removed, err
+			}
+		}
+	}
+	return removed, nil
+}
+
+func cleanArchive(dataDir string, dryRun bool) (int, error) {
+	target := filepath.Join(dataDir, "cache", "yt-dlp", "download-archive.txt")
+	if _, err := os.Stat(target); err != nil {
+		if os.IsNotExist(err) {
+			return 0, nil
+		}
+		return 0, err
+	}
+	if !dryRun {
+		if err := os.Remove(target); err != nil {
+			return 0, err
+		}
+	}
+	return 1, nil
 }
 
 func cleanAllDownloads(root string, dryRun bool) (int, error) {

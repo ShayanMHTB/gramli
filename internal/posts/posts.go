@@ -288,10 +288,21 @@ UPDATE media SET local_path = ?, file_size_bytes = ?, download_status = 'downloa
 	return err
 }
 
-func RecordDownload(ctx context.Context, db *sql.DB, postID, mediaID int64, status, destination, lastErr string) error {
+func MarkMediaStatus(ctx context.Context, db *sql.DB, mediaID int64, status string) error {
 	now := time.Now().UTC()
 	_, err := db.ExecContext(ctx, `
+UPDATE media SET download_status = ?, updated_at = ? WHERE id = ?`, status, now, mediaID)
+	return err
+}
+
+func RecordDownload(ctx context.Context, db *sql.DB, postID, mediaID int64, status, destination, lastErr string) error {
+	now := time.Now().UTC()
+	var mediaRef any
+	if mediaID > 0 {
+		mediaRef = mediaID
+	}
+	_, err := db.ExecContext(ctx, `
 INSERT INTO downloads(post_id, media_id, status, attempt_count, last_error, destination_path, started_at, completed_at, created_at, updated_at)
-VALUES(?, ?, ?, 1, NULLIF(?, ''), ?, ?, ?, ?, ?)`, postID, mediaID, status, lastErr, destination, now, now, now, now)
+VALUES(?, ?, ?, 1, NULLIF(?, ''), ?, ?, ?, ?, ?)`, postID, mediaRef, status, lastErr, destination, now, now, now, now)
 	return err
 }

@@ -20,6 +20,8 @@ Gramli is early-stage software. The current build supports:
   - images and albums through saved-post API media URLs where available
   - videos and reels through `yt-dlp` plus `ffmpeg`
 - Download cleanup and cache cleanup
+- Download reconciliation between files on disk and SQLite status rows
+- Missing-media tracking for placeholder or unavailable Instagram media
 
 ## Requirements
 
@@ -82,6 +84,21 @@ mise exec -- go run ./cmd/gramli download run \
   --delay 5s
 ```
 
+Reconcile downloaded files back into the database:
+
+```sh
+mise exec -- go run ./cmd/gramli download reconcile --apply
+mise exec -- go run ./cmd/gramli download status
+```
+
+For larger runs, prefer small sync/download/reconcile cycles:
+
+```sh
+mise exec -- go run ./cmd/gramli posts sync --saved --collection saved --limit 100 --delay 4s
+mise exec -- go run ./cmd/gramli download run --collection saved --limit 100 --metadata --strategy yt-dlp --delay 7s
+mise exec -- go run ./cmd/gramli download reconcile --apply
+```
+
 ## Storage
 
 Development data is stored under:
@@ -114,5 +131,6 @@ See:
 
 - [COMMANDS](docs/COMMANDS.md)
 - [DEVELOPMENT](docs/DEVELOPMENT.md)
+- [FUTURE_FEATURES](docs/FUTURE_FEATURES.md)
 - [SAVED_POSTS](docs/SAVED_POSTS.md)
 - [SAFETY](docs/SAFETY.md)
