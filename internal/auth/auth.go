@@ -14,6 +14,39 @@ import (
 	"time"
 )
 
+// SaveCookies serializes an already-parsed cookie slice to a session file and
+// records the session in the database. Used by the browser-login flow.
+func SaveCookies(db *sql.DB, sessionDir string, cookies []Cookie, account string) (string, error) {
+	if account == "" {
+		account = "default"
+	}
+	if err := os.MkdirAll(sessionDir, 0o700); err != nil {
+		return "", err
+	}
+	dst := filepath.Join(sessionDir, account+".cookies.json")
+	b, err := json.Marshal(cookies)
+	if err != nil {
+		return "", err
+	}
+	if err := os.WriteFile(dst, b, 0o600); err != nil {
+		return "", err
+	}
+	now := time.Now().UTC()
+	res, err := db.Exec(
+		`INSERT INTO accounts(username, created_at, updated_at, last_login_at, session_status) VALUES(?, ?, ?, ?, ?)`,
+		account, now, now, now, "browser-login",
+	)
+	if err != nil {
+		return "", err
+	}
+	accountID, _ := res.LastInsertId()
+	_, err = db.Exec(
+		`INSERT INTO sessions(account_id, session_type, cookie_file_path, authenticated, created_at, updated_at, last_checked_at) VALUES(?, ?, ?, ?, ?, ?, ?)`,
+		accountID, "browser", dst, true, now, now, now,
+	)
+	return dst, err
+}
+
 func ImportCookieFile(db *sql.DB, sessionDir, cookieFile, account string) (string, error) {
 	if cookieFile == "" {
 		return "", errors.New("cookie file is required")
