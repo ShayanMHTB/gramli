@@ -1,15 +1,41 @@
-# Gramli local development data
-# Contains local config, SQLite DBs, logs, sessions, cookies, cache, exports, and downloads.
+
+# ────────────────────────────────────────────────────────────────────────────────
+#  Gramli runtime
+#  Local workspace: config, SQLite DB, sessions, cache, logs, exports, downloads.
+# ────────────────────────────────────────────────────────────────────────────────
+
 .gramli/
 
-# Local personal input files
-# Keep real Instagram URLs, exported cookies, and ad hoc import lists out of git.
+
+# ────────────────────────────────────────────────────────────────────────────────
+#  Personal input files
+#  Real Instagram URLs, exported cookies, ad hoc import lists — keep out of git.
+# ────────────────────────────────────────────────────────────────────────────────
+
 data/
 manual/
 saved-links*.txt
 links.txt
 
-# Local databases
+
+# ────────────────────────────────────────────────────────────────────────────────
+#  Secrets & credentials
+# ────────────────────────────────────────────────────────────────────────────────
+
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.crt
+*cookies*.json
+*.session.json
+
+
+# ────────────────────────────────────────────────────────────────────────────────
+#  Databases
+# ────────────────────────────────────────────────────────────────────────────────
+
 *.db
 *.sqlite
 *.sqlite3
@@ -18,32 +44,19 @@ links.txt
 *.sqlite-shm
 *.sqlite-wal
 
-# Logs
+
+# ────────────────────────────────────────────────────────────────────────────────
+#  Logs
+# ────────────────────────────────────────────────────────────────────────────────
+
 *.log
 logs/
 
-# Environment and secrets
-.env
-.env.*
-*.pem
-*.key
-*.crt
-*cookies*.json
-*.session.json
 
-# AI assistant and local context files
-AGENTS.md
-CLAUDE.md
-.claude/
-.codex/
-.cursor/
-.windsurf/
-.continue/
-*.prompt.md
-*.context.md
-context.md
+# ────────────────────────────────────────────────────────────────────────────────
+#  Go build artifacts
+# ────────────────────────────────────────────────────────────────────────────────
 
-# Go build and test artifacts
 bin/
 dist/
 build/
@@ -53,7 +66,24 @@ coverage.html
 *.prof
 *.pprof
 
-# Temporary files
+
+# ────────────────────────────────────────────────────────────────────────────────
+#  Rust build artifacts
+#  For a future Rust port or any Rust tooling added to the repo.
+# ────────────────────────────────────────────────────────────────────────────────
+
+target/
+**/*.rs.bk
+*.rlib
+*.rmeta
+*.pdb
+Cargo.lock
+
+
+# ────────────────────────────────────────────────────────────────────────────────
+#  Temporary files
+# ────────────────────────────────────────────────────────────────────────────────
+
 tmp/
 temp/
 *.tmp
@@ -61,11 +91,42 @@ temp/
 *.swp
 *.swo
 
-# Editor and IDE metadata
+
+# ────────────────────────────────────────────────────────────────────────────────
+#  AI assistants & code agents
+#  Project-local instruction files and directories for various AI coding tools.
+# ────────────────────────────────────────────────────────────────────────────────
+
+AGENTS.md
+CLAUDE.md
+GEMINI.md
+CODEX.md
+.claude/
+.codex/
+.cursor/
+.windsurf/
+.continue/
+.aider*
+aider.conf.yml
+*.prompt.md
+*.context.md
+context.md
+.github/copilot-instructions.md
+
+
+# ────────────────────────────────────────────────────────────────────────────────
+#  Editor & IDE
+# ────────────────────────────────────────────────────────────────────────────────
+
 .vscode/
 .idea/
+.zed/
 *.code-workspace
 
-# macOS metadata
+
+# ────────────────────────────────────────────────────────────────────────────────
+#  macOS metadata
+# ────────────────────────────────────────────────────────────────────────────────
+
 .DS_Store
 ._*
