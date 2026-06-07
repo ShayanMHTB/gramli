@@ -12,16 +12,46 @@ import (
 
 func loginCmd(st *appState) *cobra.Command {
 	var web bool
-	var cookieFile, account, browser string
+	var cookieFile, account string
 	cmd := &cobra.Command{
 		Use:   "login",
 		Short: "Create or import an authenticated session",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if web {
-				return fmt.Errorf("AUTH_WEB_LOGIN_UNAVAILABLE: browser login is not automated in this build\n\nUse the current browser-assisted path:\n  1. Log in to Instagram in your normal browser.\n  2. Export your own Instagram cookies to a local JSON file.\n  3. Run: gramli login --cookie-file ./cookies.json --account personal\n\nGramli will store the imported session under %s and will not print cookie values", filepath.Join(st.settings.DataDir, "sessions"))
+				headless, _ := cmd.Flags().GetBool("headless")
+				timeout, _ := cmd.Flags().GetDuration("timeout")
+				if account == "" {
+					account = "default"
+				}
+				sessionDir := filepath.Join(st.settings.DataDir, "sessions")
+				fmt.Fprintln(cmd.OutOrStdout(), "Opening Instagram in your browser.")
+				fmt.Fprintln(cmd.OutOrStdout(), "Sign in with your email and password (plus 2FA if enabled).")
+				fmt.Fprintf(cmd.OutOrStdout(), "The session will be saved to %s once login is detected.\n\n", sessionDir)
+
+				cookies, err := auth.BrowserLogin(cmd.Context(), headless, timeout)
+				if err != nil {
+					return err
+				}
+
+				db, err := openMigratedDB(st)
+				if err != nil {
+					return err
+				}
+				defer db.Close()
+
+				path, err := auth.SaveCookies(db.DB, sessionDir, cookies, account)
+				if err != nil {
+					return err
+				}
+
+				fmt.Fprintln(cmd.OutOrStdout(), "Login successful — session saved.")
+				fmt.Fprintf(cmd.OutOrStdout(), "Account: %s\nSession: %s\n\n", account, path)
+				fmt.Fprintln(cmd.OutOrStdout(), "Verify with: gramli auth status --check-remote")
+				return nil
 			}
+
 			if cookieFile == "" {
-				return fmt.Errorf("no login method selected; use --web or --cookie-file")
+				return fmt.Errorf("no login method selected; use --web or --cookie-file ./cookies.json")
 			}
 			db, err := openMigratedDB(st)
 			if err != nil {
@@ -37,14 +67,12 @@ func loginCmd(st *appState) *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().BoolVar(&web, "web", false, "Open browser login flow")
-	cmd.Flags().StringVar(&browser, "browser", "default", "Browser to use")
-	cmd.Flags().Bool("headless", false, "Run browser automation headlessly if supported")
-	cmd.Flags().Duration("timeout", 5*time.Minute, "Login timeout")
-	cmd.Flags().StringVar(&cookieFile, "cookie-file", "", "Import cookies from file")
-	cmd.Flags().StringVar(&account, "account", "", "Local account alias")
+	cmd.Flags().BoolVar(&web, "web", false, "Open browser login flow (requires Chrome or Chromium)")
+	cmd.Flags().Bool("headless", false, "Run browser headlessly — for testing only, likely triggers bot detection")
+	cmd.Flags().Duration("timeout", 5*time.Minute, "How long to wait for login to complete")
+	cmd.Flags().StringVar(&cookieFile, "cookie-file", "", "Import cookies from a JSON file instead of opening a browser")
+	cmd.Flags().StringVar(&account, "account", "", "Local alias for this session (default: \"default\")")
 	cmd.Flags().Bool("force", false, "Replace existing session")
-	_ = browser
 	return cmd
 }
 
