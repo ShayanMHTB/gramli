@@ -37,6 +37,20 @@ func (e *env) run(args ...string) (stdout, stderr string, err error) {
 	return out.String(), errb.String(), err
 }
 
+// runStdin is like run but feeds the given string as the command's stdin.
+func (e *env) runStdin(input string, args ...string) (stdout, stderr string, err error) {
+	e.t.Helper()
+	root := NewRootCommand()
+	var out, errb bytes.Buffer
+	full := append([]string{"--data-dir", e.dataDir, "--quiet"}, args...)
+	root.SetArgs(full)
+	root.SetOut(&out)
+	root.SetErr(&errb)
+	root.SetIn(bytes.NewBufferString(input))
+	err = root.Execute()
+	return out.String(), errb.String(), err
+}
+
 // mustRun fails the test if the command returns an error.
 func (e *env) mustRun(args ...string) (stdout, stderr string) {
 	e.t.Helper()
