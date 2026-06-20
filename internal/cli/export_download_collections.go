@@ -305,6 +305,7 @@ func downloadCmd(st *appState) *cobra.Command {
 		c.Flags().String("output-dir", "", "Output directory (default: <data-dir>/downloads)")
 		c.Flags().Bool("skip-existing", true, "Skip existing files")
 		c.Flags().String("strategy", "auto", "Download strategy: auto, direct, yt-dlp")
+		c.Flags().Bool("no-reconcile", false, "Skip the post-run reconcile that syncs download statuses from disk")
 	}
 	cmd.AddCommand(run)
 	cmd.AddCommand(&cobra.Command{Use: "status", Short: "Show download status", RunE: func(cmd *cobra.Command, args []string) error {
@@ -390,6 +391,21 @@ func downloadPlan(cmd *cobra.Command, st *appState) error {
 	outputDir, _ := cmd.Flags().GetString("output-dir")
 	if outputDir == "" {
 		outputDir = filepath.Join(st.settings.DataDir, "downloads")
+	}
+	// yt-dlp downloads only log to the downloads table; media.download_status is
+	// synced from disk by reconcile. Run it automatically at the end so the
+	// status output and web UI reflect reality without a manual step.
+	if noReconcile, _ := cmd.Flags().GetBool("no-reconcile"); !noReconcile {
+		defer func() {
+			report, rerr := reconcileDownloads(cmd, db.DB, outputDir, true)
+			if rerr != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "Post-run reconcile failed: %v\n", rerr)
+				return
+			}
+			if report.DBRowsUpdated > 0 || report.MissingMedia > 0 {
+				fmt.Fprintf(cmd.OutOrStdout(), "Reconcile: synced %d media row(s) to downloaded, %d marked missing.\n", report.DBRowsUpdated, report.MissingMedia)
+			}
+		}()
 	}
 	writeMetadata, _ := cmd.Flags().GetBool("metadata")
 	metadataOnly, _ := cmd.Flags().GetBool("metadata-only")
