@@ -3,14 +3,24 @@
   <h1>Creators</h1>
   <p class="subtle">{{len .Data.Owners}} creators in your archive</p>
 </div>
-<div class="list">
-  {{- range .Data.Owners}}
-  <a href="/gallery?owner={{.Label}}">
-    <span>@{{.Label}}</span>
-    <span class="c">{{humanCount .Count}}</span>
-  </a>
-  {{- else}}
-  <div class="empty">No creators yet.</div>
-  {{- end}}
+<div class="card" style="padding:0; overflow:hidden">
+  <table class="stat-table">
+    <thead>
+      <tr><th>Creator</th><th class="num">Posts</th><th class="num">Downloaded</th><th>Media mix</th><th class="num">Storage</th></tr>
+    </thead>
+    <tbody>
+      {{- range .Data.Owners}}
+      <tr>
+        <td><a href="/gallery?owner={{.Owner}}">@{{.Owner}}</a></td>
+        <td class="num">{{humanCount .Posts}}</td>
+        <td class="num">{{humanCount .Downloaded}}</td>
+        <td class="subtle">{{if .Images}}{{.Images}} img{{end}}{{if .Videos}} · {{.Videos}} vid{{end}}{{if .Albums}} · {{.Albums}} alb{{end}}</td>
+        <td class="num">{{humanBytes .Storage}}</td>
+      </tr>
+      {{- else}}
+      <tr><td colspan="5" class="empty">No creators yet.</td></tr>
+      {{- end}}
+    </tbody>
+  </table>
 </div>
 {{end}}

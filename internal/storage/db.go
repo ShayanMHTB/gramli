@@ -201,4 +201,28 @@ ALTER TABLE accounts ADD COLUMN external_url TEXT;
 ALTER TABLE accounts ADD COLUMN category TEXT;
 ALTER TABLE accounts ADD COLUMN profile_synced_at DATETIME;
 `,
+}, {
+	version: 4,
+	sql: `
+CREATE VIRTUAL TABLE IF NOT EXISTS posts_fts USING fts5(
+  caption, owner_username, shortcode,
+  content='posts', content_rowid='id'
+);
+INSERT INTO posts_fts(rowid, caption, owner_username, shortcode)
+  SELECT id, COALESCE(caption,''), COALESCE(owner_username,''), shortcode FROM posts;
+CREATE TRIGGER IF NOT EXISTS posts_fts_ai AFTER INSERT ON posts BEGIN
+  INSERT INTO posts_fts(rowid, caption, owner_username, shortcode)
+  VALUES (new.id, COALESCE(new.caption,''), COALESCE(new.owner_username,''), new.shortcode);
+END;
+CREATE TRIGGER IF NOT EXISTS posts_fts_ad AFTER DELETE ON posts BEGIN
+  INSERT INTO posts_fts(posts_fts, rowid, caption, owner_username, shortcode)
+  VALUES ('delete', old.id, COALESCE(old.caption,''), COALESCE(old.owner_username,''), old.shortcode);
+END;
+CREATE TRIGGER IF NOT EXISTS posts_fts_au AFTER UPDATE ON posts BEGIN
+  INSERT INTO posts_fts(posts_fts, rowid, caption, owner_username, shortcode)
+  VALUES ('delete', old.id, COALESCE(old.caption,''), COALESCE(old.owner_username,''), old.shortcode);
+  INSERT INTO posts_fts(rowid, caption, owner_username, shortcode)
+  VALUES (new.id, COALESCE(new.caption,''), COALESCE(new.owner_username,''), new.shortcode);
+END;
+`,
 }}

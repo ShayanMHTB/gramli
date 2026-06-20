@@ -9,7 +9,7 @@
     <div class="cover"><img loading="lazy" src="/thumb/{{.ThumbID}}" alt=""></div>
     <div class="body">
       <div class="n">{{.Name}}</div>
-      <div class="c">{{humanCount .Count}} posts</div>
+      <div class="c">{{humanCount .Count}} posts · {{humanCount .Downloaded}} downloaded{{if gt .Storage 0}} · {{humanBytes .Storage}}{{end}}</div>
     </div>
   </a>
   {{- else}}

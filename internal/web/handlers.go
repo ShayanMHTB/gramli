@@ -1,6 +1,8 @@
 package web
 
 import (
+	"encoding/csv"
+	"encoding/json"
 	"net/http"
 	"strconv"
 
@@ -85,7 +87,7 @@ func (s *Server) handleCollections(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleOwners(w http.ResponseWriter, r *http.Request) {
-	owners, err := loadOwners(r.Context(), s.db)
+	owners, err := loadOwnerStats(r.Context(), s.db)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -109,6 +111,32 @@ func (s *Server) handleDownloads(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.render(w, "downloads", pageData{Title: "Downloads", Active: "downloads", Data: map[string]any{"Stats": stats}})
+}
+
+func (s *Server) handleExport(w http.ResponseWriter, r *http.Request) {
+	q := parseGalleryQuery(r)
+	rows, err := loadGalleryExport(r.Context(), s.db, q)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	switch r.URL.Query().Get("format") {
+	case "csv":
+		w.Header().Set("Content-Type", "text/csv; charset=utf-8")
+		w.Header().Set("Content-Disposition", `attachment; filename="gramli-export.csv"`)
+		cw := csv.NewWriter(w)
+		_ = cw.Write([]string{"shortcode", "owner", "type", "downloaded", "url", "caption"})
+		for _, row := range rows {
+			_ = cw.Write([]string{row.Shortcode, row.Owner, row.MediaType, strconv.FormatBool(row.Downloaded), row.PostURL, row.Caption})
+		}
+		cw.Flush()
+	default:
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.Header().Set("Content-Disposition", `attachment; filename="gramli-export.json"`)
+		enc := json.NewEncoder(w)
+		enc.SetIndent("", "  ")
+		_ = enc.Encode(rows)
+	}
 }
 
 func parseGalleryQuery(r *http.Request) GalleryQuery {

@@ -1,46 +1,60 @@
 {{define "post-detail"}}
 {{- with .Post}}
 <div class="modal-backdrop" onclick="closeModal(event)">
-  <div class="modal">
+  <div class="modal" data-post-modal data-shortcode="{{.Shortcode}}">
     <div class="modal-head">
       <h2 style="margin:0">{{if .Owner}}@{{.Owner}}{{else}}{{.Shortcode}}{{end}}</h2>
       <button class="icon-btn" data-close onclick="closeModal()">✕</button>
     </div>
     <div class="modal-body">
-      <div class="media-stack">
-        {{- range .Media}}
-          {{if and .Downloaded (eq .Type "video")}}
-            <video controls preload="metadata" poster="/thumb/{{.ID}}" src="/media/{{.ID}}"></video>
-          {{else if .Downloaded}}
-            <img loading="lazy" src="/media/{{.ID}}" alt="">
-          {{else}}
-            <img loading="lazy" src="/thumb/{{.ID}}" alt="">
-          {{end}}
-        {{- else}}
-          <img src="/thumb/0" alt="">
-        {{- end}}
+      <div class="carousel" data-carousel>
+        <div class="slides">
+          {{- range $i, $m := .Media}}
+          <figure class="slide {{if eq $i 0}}active{{end}}" data-slide="{{$i}}">
+            {{if and $m.Downloaded (eq $m.Type "video")}}
+              <video controls preload="metadata" poster="/thumb/{{$m.ID}}" src="/media/{{$m.ID}}"></video>
+            {{else if $m.Downloaded}}
+              <img onclick="this.classList.toggle('zoom')" loading="lazy" src="/media/{{$m.ID}}" alt="">
+            {{else}}
+              <img onclick="this.classList.toggle('zoom')" loading="lazy" src="/thumb/{{$m.ID}}" alt="">
+            {{end}}
+            <figcaption>
+              {{mediaIcon $m.Type}} {{$m.Type}}{{if gt $m.Width 0}} · {{$m.Width}}×{{$m.Height}}{{end}}{{if gt $m.FileSize 0}} · {{humanBytes $m.FileSize}}{{end}}
+              · <span class="status-pill {{$m.Status}}">{{$m.Status}}</span>
+            </figcaption>
+          </figure>
+          {{- else}}
+          <figure class="slide active"><img src="/thumb/0" alt=""></figure>
+          {{- end}}
+        </div>
+        {{if gt (len .Media) 1}}
+        <button class="car-nav prev" onclick="modalSlide(-1)" aria-label="Previous">‹</button>
+        <button class="car-nav next" onclick="modalSlide(1)" aria-label="Next">›</button>
+        <div class="car-count"><span data-current>1</span> / {{len .Media}}</div>
+        {{end}}
       </div>
 
-      {{if .Caption}}<p style="margin-top:16px; white-space:pre-wrap">{{.Caption}}</p>{{end}}
+      {{if .Caption}}<p class="caption">{{.Caption}}</p>{{end}}
 
       {{if .Collections}}
-        <div style="margin-top:12px">
-          {{range .Collections}}<span class="tag">#{{.}}</span>{{end}}
-        </div>
+      <div style="margin-top:10px">{{range .Collections}}<span class="tag">#{{.}}</span>{{end}}</div>
       {{end}}
 
       <div class="kv">
         <span class="k">Shortcode</span><span>{{.Shortcode}}</span>
         <span class="k">Type</span><span>{{mediaIcon .MediaType}} {{.MediaType}} · {{len .Media}} item(s)</span>
+        {{if date .TakenAt}}<span class="k">Taken</span><span>{{date .TakenAt}}</span>{{end}}
+        {{if date .SavedAt}}<span class="k">Saved</span><span>{{date .SavedAt}}</span>{{end}}
+        {{if .LikeCount}}<span class="k">Likes</span><span>{{humanCount .LikeCount}}</span>{{end}}
+        {{if .CommentCount}}<span class="k">Comments</span><span>{{humanCount .CommentCount}}</span>{{end}}
         <span class="k">Source</span><span>{{.Source}}</span>
-        <span class="k">Media</span>
-        <span>
-          {{range .Media}}<span class="status-pill {{.Status}}">{{.Status}}</span> {{end}}
-        </span>
+        {{if .RawJSONPath}}<span class="k">Raw JSON</span><span class="subtle">{{.RawJSONPath}}</span>{{end}}
       </div>
 
-      <div style="margin-top:18px; display:flex; gap:10px">
+      <div class="modal-actions">
         <a class="btn" href="{{.PostURL}}" target="_blank" rel="noopener noreferrer">Open on Instagram ↗</a>
+        <button class="btn ghost" onclick="copyText('{{.PostURL}}', this)">Copy URL</button>
+        <button class="btn ghost" onclick="copyText('{{.Shortcode}}', this)">Copy code</button>
         <button class="btn ghost" data-close onclick="closeModal()">Close</button>
       </div>
     </div>
