@@ -1,0 +1,26 @@
+{{define "content"}}
+{{- $s := .Data.Stats}}
+<div class="page-head">
+  <h1>Downloads</h1>
+  <p class="subtle">{{humanBytes $s.StorageBytes}} stored locally across {{humanCount $s.Downloaded}} media files.</p>
+</div>
+<div class="stats">
+  <div class="stat"><div class="n" style="color:var(--good)">{{humanCount $s.Downloaded}}</div><div class="l">Downloaded</div></div>
+  <div class="stat"><div class="n" style="color:var(--warn)">{{humanCount $s.Pending}}</div><div class="l">Pending</div></div>
+  <div class="stat"><div class="n" style="color:var(--bad)">{{humanCount $s.Failed}}</div><div class="l">Failed</div></div>
+  <div class="stat"><div class="n" style="color:var(--bad)">{{humanCount $s.Missing}}</div><div class="l">Missing</div></div>
+</div>
+<div class="cols">
+  <div class="card">
+    <h2>Status breakdown</h2>
+    {{template "barlist" $s.DownloadMix}}
+  </div>
+  <div class="card">
+    <h2>Quick filters</h2>
+    <p><a class="btn ghost" href="/gallery?status=pending">View pending posts</a></p>
+    <p><a class="btn ghost" href="/gallery?status=missing">View missing media</a></p>
+    <p><a class="btn ghost" href="/gallery?status=downloaded">View downloaded</a></p>
+    <p class="subtle" style="margin-top:16px">Downloading runs from the CLI: <code>gramli download run …</code></p>
+  </div>
+</div>
+{{end}}

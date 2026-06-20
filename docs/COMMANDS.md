@@ -120,3 +120,48 @@ gramli export --format json --stdout --pretty
 gramli export --format csv --collection saved --output ./.gramli/exports/saved.csv --overwrite
 gramli export --format markdown --stdout
 ```
+
+## Sessions
+
+```sh
+gramli sessions list                # all stored sessions (alias, type, active, file)
+gramli logout                       # deactivate the most recent session
+gramli logout --all                 # deactivate all sessions
+gramli logout --delete-session-files
+gramli logout --archive             # move cookie files aside and drop the records
+gramli logout --remove              # permanently delete records + cookie files
+gramli sessions archive personal    # archive a specific session by alias
+gramli sessions remove personal --yes
+gramli sessions prune --yes         # drop all inactive (logged-out) sessions
+gramli sessions prune --archive --yes
+```
+
+Archived cookie files are moved to `.gramli/sessions/archive/<alias>-<timestamp>.cookies.json`.
+
+## Account & Profile
+
+```sh
+gramli account sync                 # fetch the logged-in profile
+gramli account sync --username someone   # any visible profile
+gramli account show                 # display the stored profile
+gramli account switch --account work     # set the active account alias
+gramli auth refresh                 # re-validate and refresh session status
+```
+
+## Web UI
+
+```sh
+gramli web                          # serve http://127.0.0.1:8787 (read-only)
+gramli web --open                   # also open the browser
+gramli web --port 9000 --no-remote-thumbnails
+```
+
+## Maintenance
+
+```sh
+gramli config set downloads.concurrency 4
+gramli collections sync             # best-effort saved-collection sync
+gramli posts clean --dry-run        # preview orphaned post removal
+gramli posts clean --yes
+gramli download retry --failed --missing   # re-queue for the next run
+```

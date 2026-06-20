@@ -4,9 +4,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/spf13/viper"
+	"gopkg.in/yaml.v3"
 )
 
 const DefaultDataDir = "./.gramli"
@@ -100,6 +103,51 @@ func WriteDefaultConfig(path, dataDir string, force bool) error {
 		return err
 	}
 	return os.WriteFile(path, []byte(DefaultConfigYAML(dataDir)), 0o644)
+}
+
+// SetValue updates a dotted key (e.g. "downloads.concurrency") in the YAML
+// config file in place, creating intermediate maps as needed. Values are typed
+// as bool/int when they parse cleanly, otherwise stored as strings.
+func SetValue(path, key, value string) error {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	root := map[string]any{}
+	if len(b) > 0 {
+		if err := yaml.Unmarshal(b, &root); err != nil {
+			return err
+		}
+	}
+	parts := strings.Split(key, ".")
+	m := root
+	for i, p := range parts {
+		if i == len(parts)-1 {
+			m[p] = inferType(value)
+			break
+		}
+		next, ok := m[p].(map[string]any)
+		if !ok {
+			next = map[string]any{}
+			m[p] = next
+		}
+		m = next
+	}
+	out, err := yaml.Marshal(root)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, out, 0o644)
+}
+
+func inferType(value string) any {
+	if b, err := strconv.ParseBool(value); err == nil && (value == "true" || value == "false") {
+		return b
+	}
+	if n, err := strconv.ParseInt(value, 10, 64); err == nil {
+		return n
+	}
+	return value
 }
 
 func Load(path string) (*viper.Viper, error) {

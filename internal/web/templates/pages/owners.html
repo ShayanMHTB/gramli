@@ -1,0 +1,16 @@
+{{define "content"}}
+<div class="page-head">
+  <h1>Creators</h1>
+  <p class="subtle">{{len .Data.Owners}} creators in your archive</p>
+</div>
+<div class="list">
+  {{- range .Data.Owners}}
+  <a href="/gallery?owner={{.Label}}">
+    <span>@{{.Label}}</span>
+    <span class="c">{{humanCount .Count}}</span>
+  </a>
+  {{- else}}
+  <div class="empty">No creators yet.</div>
+  {{- end}}
+</div>
+{{end}}

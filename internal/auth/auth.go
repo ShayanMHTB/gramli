@@ -31,20 +31,10 @@ func SaveCookies(db *sql.DB, sessionDir string, cookies []Cookie, account string
 	if err := os.WriteFile(dst, b, 0o600); err != nil {
 		return "", err
 	}
-	now := time.Now().UTC()
-	res, err := db.Exec(
-		`INSERT INTO accounts(username, created_at, updated_at, last_login_at, session_status) VALUES(?, ?, ?, ?, ?)`,
-		account, now, now, now, "browser-login",
-	)
-	if err != nil {
+	if err := upsertSession(db, dst, account, "browser", "browser-login"); err != nil {
 		return "", err
 	}
-	accountID, _ := res.LastInsertId()
-	_, err = db.Exec(
-		`INSERT INTO sessions(account_id, session_type, cookie_file_path, authenticated, created_at, updated_at, last_checked_at) VALUES(?, ?, ?, ?, ?, ?, ?)`,
-		accountID, "browser", dst, true, now, now, now,
-	)
-	return dst, err
+	return dst, nil
 }
 
 func ImportCookieFile(db *sql.DB, sessionDir, cookieFile, account string) (string, error) {
@@ -68,14 +58,46 @@ func ImportCookieFile(db *sql.DB, sessionDir, cookieFile, account string) (strin
 	if err := os.WriteFile(dst, b, 0o600); err != nil {
 		return "", err
 	}
-	now := time.Now().UTC()
-	res, err := db.Exec(`INSERT INTO accounts(username, created_at, updated_at, last_login_at, session_status) VALUES(?, ?, ?, ?, ?)`, account, now, now, now, "imported")
-	if err != nil {
+	if err := upsertSession(db, dst, account, "cookie-file", "imported"); err != nil {
 		return "", err
 	}
-	accountID, _ := res.LastInsertId()
-	_, err = db.Exec(`INSERT INTO sessions(account_id, session_type, cookie_file_path, authenticated, created_at, updated_at, last_checked_at) VALUES(?, ?, ?, ?, ?, ?, ?)`, accountID, "cookie-file", dst, true, now, now, now)
-	return dst, err
+	return dst, nil
+}
+
+// upsertSession records (or refreshes) the account + session rows for a local
+// alias. Re-logging in under the same alias updates the existing rows instead of
+// creating duplicates.
+func upsertSession(db *sql.DB, dst, account, sessionType, status string) error {
+	now := time.Now().UTC()
+	var accountID int64
+	err := db.QueryRow(`SELECT id FROM accounts WHERE username = ? ORDER BY id LIMIT 1`, account).Scan(&accountID)
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		res, e := db.Exec(`INSERT INTO accounts(username, created_at, updated_at, last_login_at, session_status) VALUES(?, ?, ?, ?, ?)`, account, now, now, now, status)
+		if e != nil {
+			return e
+		}
+		accountID, _ = res.LastInsertId()
+	case err != nil:
+		return err
+	default:
+		if _, e := db.Exec(`UPDATE accounts SET updated_at = ?, last_login_at = ?, session_status = ? WHERE id = ?`, now, now, status, accountID); e != nil {
+			return e
+		}
+	}
+
+	var sessionID int64
+	err = db.QueryRow(`SELECT id FROM sessions WHERE account_id = ? ORDER BY id LIMIT 1`, accountID).Scan(&sessionID)
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		_, e := db.Exec(`INSERT INTO sessions(account_id, session_type, cookie_file_path, authenticated, created_at, updated_at, last_checked_at) VALUES(?, ?, ?, ?, ?, ?, ?)`, accountID, sessionType, dst, true, now, now, now)
+		return e
+	case err != nil:
+		return err
+	default:
+		_, e := db.Exec(`UPDATE sessions SET session_type = ?, cookie_file_path = ?, authenticated = 1, updated_at = ?, last_checked_at = ? WHERE id = ?`, sessionType, dst, now, now, sessionID)
+		return e
+	}
 }
 
 type StatusResult struct {

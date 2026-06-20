@@ -68,7 +68,18 @@ func configCmd(st *appState) *cobra.Command {
 		Short: "Set a config value",
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return fmt.Errorf("config set is not implemented yet; edit %s directly for now", st.settings.ConfigPath)
+			if _, err := os.Stat(st.settings.ConfigPath); err != nil {
+				return fmt.Errorf("CONFIG_NOT_FOUND: run gramli init first")
+			}
+			key, value := args[0], args[1]
+			if err := config.SetValue(st.settings.ConfigPath, key, value); err != nil {
+				return fmt.Errorf("CONFIG_WRITE_FAILED: %w", err)
+			}
+			if st.settings.JSON {
+				return printJSON(cmd.OutOrStdout(), map[string]any{"key": key, "value": value})
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "Set %s = %s\n", key, value)
+			return nil
 		},
 	})
 	return cmd
@@ -112,7 +123,7 @@ func doctorCmd(st *appState) *cobra.Command {
 				checks = append(checks, check{"downloads", false, err.Error()})
 			}
 			if st.settings.JSON {
-				return printJSON(map[string]any{"checks": checks})
+				return printJSON(cmd.OutOrStdout(), map[string]any{"checks": checks})
 			}
 			for _, c := range checks {
 				status := "ok"
