@@ -37,6 +37,63 @@ func insertPost(t *testing.T, db *sql.DB, shortcode, owner, caption string) int6
 	return id
 }
 
+func TestUpsertOwnVsSaved(t *testing.T) {
+	db := testDB(t)
+	ctx := context.Background()
+	taken := time.Unix(1700000000, 0).UTC()
+
+	if err := UpsertOwn(ctx, db, MetadataUpdate{
+		Shortcode: "OWN1", OwnerUsername: "me", MediaType: "video", IsVideo: true,
+		ThumbnailURL: "https://cdn/own1.jpg", TakenAt: &taken,
+		Media: []Media{{MediaIndex: 1, MediaType: "video", RemoteURL: "https://cdn/own1.mp4"}},
+	}, "https://www.instagram.com/p/OWN1/"); err != nil {
+		t.Fatalf("UpsertOwn: %v", err)
+	}
+	if err := UpsertSaved(ctx, db, MetadataUpdate{
+		Shortcode: "SAV1", OwnerUsername: "alice", MediaType: "image",
+		ThumbnailURL: "https://cdn/sav1.jpg",
+		Media:        []Media{{MediaIndex: 1, MediaType: "image", RemoteURL: "https://cdn/sav1.jpg"}},
+	}, "https://www.instagram.com/p/SAV1/"); err != nil {
+		t.Fatalf("UpsertSaved: %v", err)
+	}
+
+	var source string
+	var savedAt, takenAt sql.NullString
+	if err := db.QueryRow(`SELECT source, CAST(saved_at AS TEXT), CAST(taken_at AS TEXT) FROM posts WHERE shortcode='OWN1'`).
+		Scan(&source, &savedAt, &takenAt); err != nil {
+		t.Fatalf("query OWN1: %v", err)
+	}
+	if source != "own" {
+		t.Errorf("own post source = %q, want own", source)
+	}
+	if savedAt.Valid && savedAt.String != "" {
+		t.Errorf("own post should not stamp saved_at, got %q", savedAt.String)
+	}
+	if !takenAt.Valid || takenAt.String == "" {
+		t.Errorf("own post should stamp taken_at, got %q", takenAt.String)
+	}
+
+	if err := db.QueryRow(`SELECT source, CAST(saved_at AS TEXT) FROM posts WHERE shortcode='SAV1'`).
+		Scan(&source, &savedAt); err != nil {
+		t.Fatalf("query SAV1: %v", err)
+	}
+	if source != "saved" {
+		t.Errorf("saved post source = %q, want saved", source)
+	}
+	if !savedAt.Valid || savedAt.String == "" {
+		t.Errorf("saved post should stamp saved_at")
+	}
+
+	// Media rows were attached for the own post.
+	var mediaCount int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM media m JOIN posts p ON p.id=m.post_id WHERE p.shortcode='OWN1'`).Scan(&mediaCount); err != nil {
+		t.Fatal(err)
+	}
+	if mediaCount != 1 {
+		t.Errorf("own post media rows = %d, want 1", mediaCount)
+	}
+}
+
 func TestExtractHashtags(t *testing.T) {
 	got := ExtractHashtags("Loving the #Sunset at the #beach #sunset again @friend no#3")
 	want := []string{"3", "beach", "sunset"}

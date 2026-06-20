@@ -26,9 +26,9 @@ func seedWebDB(t *testing.T) (*sql.DB, string) {
 		t.Fatal(err)
 	}
 	now := time.Now().UTC()
-	seed := func(shortcode, owner, caption, mtype, status string) {
+	seed := func(shortcode, owner, caption, mtype, status, source string) {
 		res, err := db.Exec(`INSERT INTO posts(shortcode, post_url, owner_username, caption, media_type, discovered_at, last_seen_at, source, created_at, updated_at)
-			VALUES(?,?,?,?,?,?,?,?,?,?)`, shortcode, "https://www.instagram.com/p/"+shortcode+"/", owner, caption, mtype, now, now, "saved", now, now)
+			VALUES(?,?,?,?,?,?,?,?,?,?)`, shortcode, "https://www.instagram.com/p/"+shortcode+"/", owner, caption, mtype, now, now, source, now, now)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -37,13 +37,16 @@ func seedWebDB(t *testing.T) (*sql.DB, string) {
 			VALUES(?,1,?,?,?,?,?,?)`, id, mtype, "https://cdn/"+shortcode+".jpg", status, 2048, now, now); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := db.Exec(`INSERT INTO collections(name, slug, discovered_at, created_at, updated_at) VALUES('Saved','saved',?,?,?) ON CONFLICT(slug) DO NOTHING`, now, now, now); err != nil {
-			t.Fatal(err)
+		if source == "saved" {
+			if _, err := db.Exec(`INSERT INTO collections(name, slug, discovered_at, created_at, updated_at) VALUES('Saved','saved',?,?,?) ON CONFLICT(slug) DO NOTHING`, now, now, now); err != nil {
+				t.Fatal(err)
+			}
+			_, _ = db.Exec(`INSERT OR IGNORE INTO post_collections(post_id, collection_id, added_at) SELECT ?, id, ? FROM collections WHERE slug='saved'`, id, now)
 		}
-		_, _ = db.Exec(`INSERT OR IGNORE INTO post_collections(post_id, collection_id, added_at) SELECT ?, id, ? FROM collections WHERE slug='saved'`, id, now)
 	}
-	seed("AAA111", "alice", "sunset beach vibes", "image", "downloaded")
-	seed("BBB222", "bob", "cooking pasta tonight", "video", "pending")
+	seed("AAA111", "alice", "sunset beach vibes", "image", "downloaded", "saved")
+	seed("BBB222", "bob", "cooking pasta tonight", "video", "pending", "saved")
+	seed("MINE01", "me", "my own reel", "video", "pending", "own")
 	return db.DB, dir
 }
 
@@ -132,6 +135,25 @@ func TestGalleryFTSSearch(t *testing.T) {
 	code, body3 := get(t, srv, "/gallery?q=zzqqx", true)
 	if code != 200 || strings.Contains(body3, "AAA111") || strings.Contains(body3, "BBB222") {
 		t.Errorf("gibberish search should be empty and clean")
+	}
+}
+
+func TestGallerySourceFilter(t *testing.T) {
+	srv := newTestServer(t)
+	// source=own shows only the own post.
+	_, own := get(t, srv, "/gallery?source=own", true)
+	if !strings.Contains(own, "MINE01") || strings.Contains(own, "AAA111") {
+		t.Errorf("source=own filter wrong:\n%s", own)
+	}
+	// source=saved excludes the own post.
+	_, saved := get(t, srv, "/gallery?source=saved", true)
+	if !strings.Contains(saved, "AAA111") || strings.Contains(saved, "MINE01") {
+		t.Errorf("source=saved filter wrong:\n%s", saved)
+	}
+	// No source filter shows everything.
+	_, all := get(t, srv, "/gallery", true)
+	if !strings.Contains(all, "MINE01") || !strings.Contains(all, "AAA111") {
+		t.Errorf("unfiltered gallery should show all sources")
 	}
 }
 

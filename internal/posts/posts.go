@@ -48,6 +48,7 @@ type MetadataUpdate struct {
 	IsAlbum       bool
 	ThumbnailURL  string
 	RawPath       string
+	TakenAt       *time.Time
 	Media         []Media
 }
 
@@ -93,14 +94,37 @@ ON CONFLICT(shortcode) DO UPDATE SET post_url=excluded.post_url, last_seen_at=ex
 	return n > 0, nil
 }
 
+// UpsertSaved stores a post discovered through the saved-posts feed, stamping
+// saved_at so it sorts on the saved timeline.
 func UpsertSaved(ctx context.Context, db *sql.DB, update MetadataUpdate, postURL string) error {
-	if _, err := Upsert(ctx, db, update.Shortcode, postURL, "saved"); err != nil {
+	return upsertPost(ctx, db, update, postURL, "saved")
+}
+
+// UpsertOwn stores a post discovered through the authenticated user's own feed.
+// It records source="own" and the post's taken_at, but leaves saved_at unset.
+func UpsertOwn(ctx context.Context, db *sql.DB, update MetadataUpdate, postURL string) error {
+	return upsertPost(ctx, db, update, postURL, "own")
+}
+
+// upsertPost is the shared write path for feed-discovered posts. saved_at is
+// only stamped for the "saved" source; taken_at is filled from the metadata
+// when available. Both use COALESCE so an existing value is never clobbered.
+func upsertPost(ctx context.Context, db *sql.DB, update MetadataUpdate, postURL, source string) error {
+	if _, err := Upsert(ctx, db, update.Shortcode, postURL, source); err != nil {
 		return err
 	}
 	if err := ApplyMetadata(ctx, db, update); err != nil {
 		return err
 	}
 	now := time.Now().UTC()
+	var savedAt any
+	if source == "saved" {
+		savedAt = now
+	}
+	var takenAt any
+	if update.TakenAt != nil {
+		takenAt = update.TakenAt.UTC()
+	}
 	_, err := db.ExecContext(ctx, `
 UPDATE posts
 SET owner_username = COALESCE(NULLIF(?, ''), owner_username),
@@ -109,10 +133,11 @@ SET owner_username = COALESCE(NULLIF(?, ''), owner_username),
     is_video = ?,
     is_album = ?,
     thumbnail_url = COALESCE(NULLIF(?, ''), thumbnail_url),
+    taken_at = COALESCE(taken_at, ?),
     saved_at = COALESCE(saved_at, ?),
     last_seen_at = ?,
     updated_at = ?
-WHERE shortcode = ?`, update.OwnerUsername, update.Caption, update.MediaType, update.IsVideo, update.IsAlbum, update.ThumbnailURL, now, now, now, update.Shortcode)
+WHERE shortcode = ?`, update.OwnerUsername, update.Caption, update.MediaType, update.IsVideo, update.IsAlbum, update.ThumbnailURL, takenAt, savedAt, now, now, update.Shortcode)
 	return err
 }
 
@@ -123,6 +148,7 @@ type ListOptions struct {
 	Collection string
 	Owner      string
 	MediaType  string
+	Source     string
 	Downloaded *bool
 	Query      string
 	Sort       string
@@ -159,6 +185,10 @@ func List(ctx context.Context, db *sql.DB, opt ListOptions) ([]Post, error) {
 	if opt.MediaType != "" && opt.MediaType != "any" {
 		where = append(where, "p.media_type = ?")
 		args = append(args, opt.MediaType)
+	}
+	if opt.Source != "" && opt.Source != "any" {
+		where = append(where, "p.source = ?")
+		args = append(args, opt.Source)
 	}
 	if opt.Downloaded != nil {
 		if *opt.Downloaded {

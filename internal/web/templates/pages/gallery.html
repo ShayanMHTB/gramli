@@ -40,6 +40,15 @@
       </datalist>
     </div>
     <div class="group">
+      <label>Source</label>
+      <select name="source">
+        {{$src := $q.Source}}
+        <option value="" {{if eq $src ""}}selected{{end}}>All</option>
+        <option value="saved" {{if eq $src "saved"}}selected{{end}}>Saved</option>
+        <option value="own" {{if eq $src "own"}}selected{{end}}>Mine</option>
+      </select>
+    </div>
+    <div class="group">
       <label>Media type</label>
       <select name="type">
         {{$t := $q.MediaType}}

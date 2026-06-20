@@ -71,6 +71,56 @@ func TestFetchSavedPostsPagination(t *testing.T) {
 	}
 }
 
+const ownPage1 = `{"items":[{"code":"OWN1","user":{"username":"me"},"media_type":2,"taken_at":1700000000,"image_versions2":{"candidates":[{"url":"https://cdn/own1.jpg"}]},"video_versions":[{"url":"https://cdn/own1.mp4"}]}],"next_max_id":"own2id","more_available":true}`
+const ownPage2 = `{"items":[{"code":"OWN2","user":{"username":"me"},"media_type":1,"image_versions2":{"candidates":[{"url":"https://cdn/own2.jpg"}]}}],"more_available":false}`
+
+func TestFetchUserFeedPagination(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/feed/user/42/" {
+			t.Errorf("unexpected path %s", r.URL.Path)
+		}
+		if r.Header.Get("X-IG-App-ID") == "" {
+			t.Error("missing X-IG-App-ID header")
+		}
+		if r.URL.Query().Get("max_id") == "own2id" {
+			_, _ = w.Write([]byte(ownPage2))
+			return
+		}
+		_, _ = w.Write([]byte(ownPage1))
+	}))
+	defer srv.Close()
+	c := newTestClient(t, srv.URL)
+
+	p1, err := c.FetchUserFeed(context.Background(), "42", "")
+	if err != nil {
+		t.Fatalf("page1: %v", err)
+	}
+	if len(p1.Posts) != 1 || p1.Posts[0].Shortcode != "OWN1" || p1.Posts[0].MediaType != "video" {
+		t.Fatalf("page1 parse wrong: %+v", p1.Posts)
+	}
+	if p1.Posts[0].TakenAt == nil || p1.Posts[0].TakenAt.Unix() != 1700000000 {
+		t.Fatalf("taken_at not parsed: %+v", p1.Posts[0].TakenAt)
+	}
+	if !p1.HasNextPage || p1.NextMaxID != "own2id" {
+		t.Fatalf("page1 pagination wrong: next=%q hasNext=%v", p1.NextMaxID, p1.HasNextPage)
+	}
+
+	p2, err := c.FetchUserFeed(context.Background(), "42", p1.NextMaxID)
+	if err != nil {
+		t.Fatalf("page2: %v", err)
+	}
+	if len(p2.Posts) != 1 || p2.Posts[0].Shortcode != "OWN2" || p2.HasNextPage {
+		t.Fatalf("page2 wrong: %+v hasNext=%v", p2.Posts, p2.HasNextPage)
+	}
+}
+
+func TestFetchUserFeedRequiresUserID(t *testing.T) {
+	c := newTestClient(t, "http://127.0.0.1:0")
+	if _, err := c.FetchUserFeed(context.Background(), "", ""); err == nil || !strings.Contains(err.Error(), "USER_ID_MISSING") {
+		t.Fatalf("expected USER_ID_MISSING, got %v", err)
+	}
+}
+
 func TestFetchSavedPostsRateLimited(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusTooManyRequests)
