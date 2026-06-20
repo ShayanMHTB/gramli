@@ -210,6 +210,7 @@ func parseGalleryQuery(r *http.Request) GalleryQuery {
 		Collection: v.Get("collection"),
 		Owner:      v.Get("owner"),
 		MediaType:  v.Get("type"),
+		Source:     v.Get("source"),
 		Status:     v.Get("status"),
 		Tag:        v.Get("tag"),
 		Search:     v.Get("q"),

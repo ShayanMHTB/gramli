@@ -19,15 +19,31 @@ gramli logout
 
 Gramli never asks for an Instagram password. Cookie files are copied into `.gramli/sessions/` with restrictive permissions.
 
-## Saved Posts
+## Posts Sync
+
+Saved posts:
 
 ```sh
 gramli posts sync --saved --collection saved --limit 100 --delay 2s
-gramli posts sync --saved --collection saved --limit 100 --delay 4s
 gramli posts list --collection saved --limit 20
 gramli posts show <shortcode>
 gramli posts search <query>
 ```
+
+Your own posts (timeline + reels):
+
+```sh
+gramli posts sync --own --limit 100 --delay 2s
+gramli posts list --limit 20
+```
+
+`--own` fetches the authenticated account's own media from
+`/api/v1/feed/user/{id}/`. The user id is taken from `account sync` (run it
+first) and falls back to the `ds_user_id` session cookie. Own posts are stored
+with `source="own"` (saved posts use `source="saved"`); they are not attached to
+a local collection — filter them by source instead (CLI `posts list`, or the
+web gallery's **Source** filter). `--saved` and `--own` can be combined in one
+invocation.
 
 Use `--limit` while testing. Increase gradually before attempting a full account archive.
 
@@ -178,7 +194,7 @@ gramli web --port 9000 --no-remote-thumbnails
 ```
 
 The UI offers full-text search (SQLite FTS5), a filterable gallery (by
-collection, creator, type, status, tag), a post lightbox with album carousel
+collection, creator, source, type, status, tag), a post lightbox with album carousel
 (arrow keys to page media, `j`/`k` between posts, `/` to focus search, `Esc` to
 close), per-creator and per-collection stats, and "Export JSON/CSV" of the
 current filtered view.

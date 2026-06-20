@@ -68,6 +68,7 @@ type SavedPost struct {
 	Caption       string
 	MediaType     string
 	ThumbnailURL  string
+	TakenAt       *time.Time
 	Media         []Media
 }
 
@@ -208,6 +209,49 @@ func (c *Client) FetchSavedPosts(ctx context.Context, maxID string) (SavedPage, 
 	return page, nil
 }
 
+// FetchUserFeed pages through a single user's own timeline media via
+// /api/v1/feed/user/{id}/. The response shares the saved-feed item shape, so it
+// reuses ParseSavedPostsJSON; pass the authenticated account's ds_user_id (or
+// the stored instagram_user_id) to fetch your own posts and reels.
+func (c *Client) FetchUserFeed(ctx context.Context, userID, maxID string) (SavedPage, error) {
+	if userID == "" {
+		return SavedPage{}, fmt.Errorf("USER_ID_MISSING: cannot fetch own posts without an Instagram user id")
+	}
+	cookies, err := auth.LoadCookies(c.CookieFile)
+	if err != nil {
+		return SavedPage{}, err
+	}
+	endpoint := c.url("/api/v1/feed/user/" + userID + "/")
+	if maxID != "" {
+		u, _ := url.Parse(endpoint)
+		q := u.Query()
+		q.Set("max_id", maxID)
+		u.RawQuery = q.Encode()
+		endpoint = u.String()
+	}
+	body, err := c.getJSON(ctx, endpoint, cookies)
+	if err != nil {
+		return SavedPage{}, err
+	}
+	rawPath := ""
+	if c.CacheDir != "" {
+		if err := os.MkdirAll(c.CacheDir, 0o755); err == nil {
+			name := "own-first.json"
+			if maxID != "" {
+				name = "own-" + strconv.FormatInt(time.Now().UnixNano(), 10) + ".json"
+			}
+			rawPath = filepath.Join(c.CacheDir, name)
+			_ = os.WriteFile(rawPath, body, 0o600)
+		}
+	}
+	page, err := ParseSavedPostsJSON(body)
+	if err != nil {
+		return SavedPage{}, err
+	}
+	page.RawPath = rawPath
+	return page, nil
+}
+
 func ParseSavedPostsJSON(body []byte) (SavedPage, error) {
 	var root map[string]any
 	if err := json.Unmarshal(body, &root); err != nil {
@@ -269,8 +313,20 @@ func savedPostFromMedia(media map[string]any) SavedPost {
 		Caption:       caption,
 		MediaType:     mediaType,
 		ThumbnailURL:  thumb,
+		TakenAt:       unixTime(media["taken_at"]),
 		Media:         mediaItems,
 	}
+}
+
+// unixTime converts Instagram's `taken_at` (Unix seconds) into a UTC time, or
+// nil when the value is absent or non-positive.
+func unixTime(value any) *time.Time {
+	secs := int64Value(value)
+	if secs <= 0 {
+		return nil
+	}
+	t := time.Unix(secs, 0).UTC()
+	return &t
 }
 
 func mediaItemsFromSavedMedia(media map[string]any, mediaType, thumb string) []Media {

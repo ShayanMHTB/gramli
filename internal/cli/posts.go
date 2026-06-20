@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/shayanmahtabi/gramli/internal/accounts"
 	"github.com/shayanmahtabi/gramli/internal/auth"
 	"github.com/shayanmahtabi/gramli/internal/instagram"
 	"github.com/shayanmahtabi/gramli/internal/posts"
@@ -179,19 +180,16 @@ func postsCleanCmd(st *appState) *cobra.Command {
 }
 
 func postsSyncCmd(st *appState) *cobra.Command {
-	var saved bool
+	var saved, own bool
 	var limit, maxPages int
 	var collection string
 	var delay time.Duration
 	cmd := &cobra.Command{
 		Use:   "sync",
-		Short: "Sync saved posts",
+		Short: "Sync saved posts (--saved) or your own posts (--own)",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if !saved {
-				return fmt.Errorf("posts sync currently requires --saved")
-			}
-			if collection == "" {
-				collection = "saved"
+			if !saved && !own {
+				return fmt.Errorf("posts sync requires --saved or --own")
 			}
 			db, err := openMigratedDB(st)
 			if err != nil {
@@ -202,66 +200,40 @@ func postsSyncCmd(st *appState) *cobra.Command {
 			if !session.Exists || !session.Authenticated {
 				return fmt.Errorf("AUTH_SESSION_MISSING: run gramli auth status --check-remote first")
 			}
-			client := instagram.NewClient(session.CookieFilePath, filepath.Join(st.settings.DataDir, "cache", "saved"))
-			fetched, stored, failed := 0, 0, 0
-			nextMaxID := ""
-			for pageNo := 1; ; pageNo++ {
-				if maxPages > 0 && pageNo > maxPages {
-					break
+
+			if saved {
+				col := collection
+				if col == "" {
+					col = "saved"
 				}
-				if delay > 0 && pageNo > 1 {
-					select {
-					case <-cmd.Context().Done():
-						return cmd.Context().Err()
-					case <-time.After(delay):
-					}
+				client := instagram.NewClient(session.CookieFilePath, filepath.Join(st.settings.DataDir, "cache", "saved"))
+				fetch := func(ctx context.Context, maxID string) (instagram.SavedPage, error) {
+					return client.FetchSavedPosts(ctx, maxID)
 				}
-				page, err := client.FetchSavedPosts(cmd.Context(), nextMaxID)
+				if err := runFeedSync(cmd, st, db.DB, "saved", col, fetch, limit, maxPages, delay); err != nil {
+					return err
+				}
+			}
+			if own {
+				userID, err := resolveSelfUserID(cmd.Context(), db.DB, session)
 				if err != nil {
 					return err
 				}
-				for _, savedPost := range page.Posts {
-					if limit > 0 && fetched >= limit {
-						break
-					}
-					fetched++
-					if st.settings.DryRun {
-						fmt.Fprintf(cmd.OutOrStdout(), "Would store: %s %s\n", savedPost.Shortcode, savedPost.PostURL)
-						continue
-					}
-					err := posts.UpsertSaved(cmd.Context(), db.DB, posts.MetadataUpdate{
-						Shortcode:     savedPost.Shortcode,
-						OwnerUsername: savedPost.OwnerUsername,
-						Caption:       savedPost.Caption,
-						MediaType:     savedPost.MediaType,
-						IsVideo:       savedPost.MediaType == "video",
-						IsAlbum:       savedPost.MediaType == "album",
-						ThumbnailURL:  savedPost.ThumbnailURL,
-						Media:         convertInstagramMedia(savedPost.Media),
-					}, savedPost.PostURL)
-					if err != nil {
-						failed++
-						fmt.Fprintf(cmd.ErrOrStderr(), "Store failed for %s: %v\n", savedPost.Shortcode, err)
-						continue
-					}
-					if err := attachCollection(db.DB, savedPost.Shortcode, collection); err != nil {
-						return err
-					}
-					stored++
+				client := instagram.NewClient(session.CookieFilePath, filepath.Join(st.settings.DataDir, "cache", "own"))
+				fetch := func(ctx context.Context, maxID string) (instagram.SavedPage, error) {
+					return client.FetchUserFeed(ctx, userID, maxID)
 				}
-				if limit > 0 && fetched >= limit {
-					break
+				// Own posts are grouped by the source="own" filter, not a local
+				// collection, so no collection is attached.
+				if err := runFeedSync(cmd, st, db.DB, "own", "", fetch, limit, maxPages, delay); err != nil {
+					return err
 				}
-				if !page.HasNextPage || page.NextMaxID == "" {
-					break
-				}
-				nextMaxID = page.NextMaxID
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "Sync complete\nFetched: %d\nStored: %d\nFailed: %d\nCollection: %s\nDatabase: %s\n", fetched, stored, failed, collection, st.settings.DBPath)
 			return nil
 		},
 	}
 	cmd.Flags().BoolVar(&saved, "saved", false, "Sync saved posts")
+	cmd.Flags().BoolVar(&own, "own", false, "Sync your own posts (timeline + reels)")
 	cmd.Flags().Bool("collections", false, "Reserved for collection sync")
 	cmd.Flags().StringVar(&collection, "collection", "saved", "Local collection name for synced saved posts")
 	cmd.Flags().IntVar(&limit, "limit", 0, "Maximum posts to sync")
@@ -274,6 +246,96 @@ func postsSyncCmd(st *appState) *cobra.Command {
 	cmd.Flags().DurationVar(&delay, "delay", 2*time.Second, "Delay between API pages")
 	cmd.Flags().Duration("jitter", 0, "Random delay jitter")
 	return cmd
+}
+
+// runFeedSync pages through a feed (saved or own), upserting each post with the
+// given source and optionally attaching it to a local collection.
+func runFeedSync(cmd *cobra.Command, st *appState, db *sql.DB, source, collection string, fetch func(context.Context, string) (instagram.SavedPage, error), limit, maxPages int, delay time.Duration) error {
+	fetched, stored, failed := 0, 0, 0
+	nextMaxID := ""
+	for pageNo := 1; ; pageNo++ {
+		if maxPages > 0 && pageNo > maxPages {
+			break
+		}
+		if delay > 0 && pageNo > 1 {
+			select {
+			case <-cmd.Context().Done():
+				return cmd.Context().Err()
+			case <-time.After(delay):
+			}
+		}
+		page, err := fetch(cmd.Context(), nextMaxID)
+		if err != nil {
+			return err
+		}
+		for _, p := range page.Posts {
+			if limit > 0 && fetched >= limit {
+				break
+			}
+			fetched++
+			if st.settings.DryRun {
+				fmt.Fprintf(cmd.OutOrStdout(), "Would store: %s %s\n", p.Shortcode, p.PostURL)
+				continue
+			}
+			update := posts.MetadataUpdate{
+				Shortcode:     p.Shortcode,
+				OwnerUsername: p.OwnerUsername,
+				Caption:       p.Caption,
+				MediaType:     p.MediaType,
+				IsVideo:       p.MediaType == "video",
+				IsAlbum:       p.MediaType == "album",
+				ThumbnailURL:  p.ThumbnailURL,
+				TakenAt:       p.TakenAt,
+				Media:         convertInstagramMedia(p.Media),
+			}
+			if source == "own" {
+				err = posts.UpsertOwn(cmd.Context(), db, update, p.PostURL)
+			} else {
+				err = posts.UpsertSaved(cmd.Context(), db, update, p.PostURL)
+			}
+			if err != nil {
+				failed++
+				fmt.Fprintf(cmd.ErrOrStderr(), "Store failed for %s: %v\n", p.Shortcode, err)
+				continue
+			}
+			if collection != "" {
+				if err := attachCollection(db, p.Shortcode, collection); err != nil {
+					return err
+				}
+			}
+			stored++
+		}
+		if limit > 0 && fetched >= limit {
+			break
+		}
+		if !page.HasNextPage || page.NextMaxID == "" {
+			break
+		}
+		nextMaxID = page.NextMaxID
+	}
+	colLine := collection
+	if colLine == "" {
+		colLine = "(none)"
+	}
+	fmt.Fprintf(cmd.OutOrStdout(), "Sync complete (%s)\nFetched: %d\nStored: %d\nFailed: %d\nCollection: %s\nDatabase: %s\n", source, fetched, stored, failed, colLine, st.settings.DBPath)
+	return nil
+}
+
+// resolveSelfUserID returns the authenticated account's numeric Instagram user
+// id, preferring the value stored by `account sync` and falling back to the
+// ds_user_id session cookie.
+func resolveSelfUserID(ctx context.Context, db *sql.DB, session auth.StatusResult) (string, error) {
+	if acc, err := accounts.Get(ctx, db, ""); err == nil && acc.InstagramuserID != "" {
+		return acc.InstagramuserID, nil
+	}
+	if cookies, err := auth.LoadCookies(session.CookieFilePath); err == nil {
+		for _, ck := range cookies {
+			if ck.Name == "ds_user_id" && ck.Value != "" {
+				return ck.Value, nil
+			}
+		}
+	}
+	return "", fmt.Errorf("could not determine your Instagram user id; run gramli account sync first")
 }
 
 func convertInstagramMedia(media []instagram.Media) []posts.Media {
@@ -294,7 +356,9 @@ func postsListCmd(st *appState) *cobra.Command {
 	var format string
 	var saved bool
 	cmd := &cobra.Command{Use: "list", Short: "List posts", RunE: func(cmd *cobra.Command, args []string) error {
-		_ = saved
+		if saved && opt.Source == "" {
+			opt.Source = "saved"
+		}
 		if d, _ := cmd.Flags().GetBool("downloaded"); d {
 			tv := true
 			opt.Downloaded = &tv
@@ -310,7 +374,8 @@ func postsListCmd(st *appState) *cobra.Command {
 	cmd.Flags().StringVar(&opt.Collection, "collection", "", "Filter by collection")
 	cmd.Flags().StringVar(&opt.Owner, "owner", "", "Filter by owner username")
 	cmd.Flags().StringVar(&opt.MediaType, "media-type", "any", "image, video, album, any")
-	cmd.Flags().BoolVar(&saved, "saved", false, "Only saved posts")
+	cmd.Flags().StringVar(&opt.Source, "source", "", "Filter by source: saved, own")
+	cmd.Flags().BoolVar(&saved, "saved", false, "Only saved posts (shortcut for --source saved)")
 	cmd.Flags().Bool("downloaded", false, "Only downloaded posts")
 	cmd.Flags().Bool("not-downloaded", false, "Only posts not downloaded")
 	cmd.Flags().StringVar(&opt.Sort, "sort", "discovered_at", "Sort field")

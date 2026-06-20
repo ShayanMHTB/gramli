@@ -41,6 +41,7 @@ type Stats struct {
 	StorageBytes int64
 	MediaTypes   []Bucket
 	DownloadMix  []Bucket
+	SourceMix    []Bucket
 	TopOwners    []Bucket
 	Timeline     []Bucket
 }
@@ -68,6 +69,7 @@ type GalleryQuery struct {
 	Collection string
 	Owner      string
 	MediaType  string
+	Source     string // saved | own | any
 	Status     string // downloaded | pending | missing | any
 	Tag        string
 	Search     string
@@ -147,6 +149,7 @@ func loadStats(ctx context.Context, db *sql.DB) (Stats, error) {
 
 	s.MediaTypes = buckets(ctx, db, `SELECT COALESCE(NULLIF(media_type,''),'unknown') AS k, COUNT(*) FROM posts GROUP BY k ORDER BY COUNT(*) DESC`)
 	s.DownloadMix = buckets(ctx, db, `SELECT download_status, COUNT(*) FROM media GROUP BY download_status ORDER BY COUNT(*) DESC`)
+	s.SourceMix = buckets(ctx, db, `SELECT CASE source WHEN 'own' THEN 'Mine' WHEN 'saved' THEN 'Saved' ELSE COALESCE(NULLIF(source,''),'other') END AS k, COUNT(*) FROM posts GROUP BY source ORDER BY COUNT(*) DESC`)
 	s.TopOwners = buckets(ctx, db, `SELECT owner_username, COUNT(*) FROM posts WHERE owner_username IS NOT NULL AND owner_username<>'' GROUP BY owner_username ORDER BY COUNT(*) DESC LIMIT 10`)
 	// Bucket by month using a substring of the stored timestamp (YYYY-MM),
 	// which is robust regardless of the exact datetime serialization.
@@ -223,6 +226,10 @@ func galleryWhere(q GalleryQuery) ([]string, []any) {
 	if q.MediaType != "" && q.MediaType != "any" {
 		where = append(where, "p.media_type=?")
 		args = append(args, q.MediaType)
+	}
+	if q.Source != "" && q.Source != "any" {
+		where = append(where, "p.source=?")
+		args = append(args, q.Source)
 	}
 	switch q.Status {
 	case "downloaded":
