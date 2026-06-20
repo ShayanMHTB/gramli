@@ -7,6 +7,7 @@ import (
 	"strconv"
 
 	"github.com/shayanmahtabi/gramli/internal/accounts"
+	"github.com/shayanmahtabi/gramli/internal/posts"
 )
 
 type pageData struct {
@@ -46,6 +47,7 @@ func (s *Server) handleGallery(w http.ResponseWriter, r *http.Request) {
 	collections, _ := loadCollections(r.Context(), s.db)
 	data["Owners"] = owners
 	data["Collections"] = collections
+	data["Tags"] = loadAllTags(r.Context(), s.db)
 	s.render(w, "gallery", pageData{Title: "Gallery", Active: "gallery", Data: data})
 }
 
@@ -75,6 +77,61 @@ func (s *Server) handlePost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.render(w, "post", pageData{Title: "@" + d.Owner + " · " + d.Shortcode, Active: "gallery", Data: data})
+}
+
+// renderPostDetailAfterMutation re-renders the modal so the UI reflects the new
+// tags/collections immediately.
+func (s *Server) renderPostDetailAfterMutation(w http.ResponseWriter, r *http.Request, shortcode string) {
+	d, err := loadPostDetail(r.Context(), s.db, shortcode)
+	if err != nil {
+		http.Error(w, "post not found", http.StatusNotFound)
+		return
+	}
+	s.renderPartial(w, "post-detail", map[string]any{"Post": d, "RemoteFallback": s.remoteFallback})
+}
+
+func (s *Server) handlePostTagAdd(w http.ResponseWriter, r *http.Request) {
+	shortcode := r.PathValue("shortcode")
+	if tag := r.FormValue("tag"); tag != "" {
+		if err := posts.AddTag(r.Context(), s.db, shortcode, tag); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+	}
+	s.renderPostDetailAfterMutation(w, r, shortcode)
+}
+
+func (s *Server) handlePostTagRemove(w http.ResponseWriter, r *http.Request) {
+	shortcode := r.PathValue("shortcode")
+	if err := posts.RemoveTag(r.Context(), s.db, shortcode, r.FormValue("tag")); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	s.renderPostDetailAfterMutation(w, r, shortcode)
+}
+
+func (s *Server) handlePostCollections(w http.ResponseWriter, r *http.Request) {
+	shortcode := r.PathValue("shortcode")
+	collection := r.FormValue("collection")
+	if collection == "" {
+		http.Error(w, "collection required", http.StatusBadRequest)
+		return
+	}
+	member := r.FormValue("member") == "true"
+	if err := posts.SetPostCollection(r.Context(), s.db, shortcode, collection, member); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	s.renderPostDetailAfterMutation(w, r, shortcode)
+}
+
+func (s *Server) handlePostDelete(w http.ResponseWriter, r *http.Request) {
+	shortcode := r.PathValue("shortcode")
+	if _, err := posts.DeletePost(r.Context(), s.db, s.downloadsDir, shortcode, true); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
 }
 
 func (s *Server) handleCollections(w http.ResponseWriter, r *http.Request) {
@@ -154,6 +211,7 @@ func parseGalleryQuery(r *http.Request) GalleryQuery {
 		Owner:      v.Get("owner"),
 		MediaType:  v.Get("type"),
 		Status:     v.Get("status"),
+		Tag:        v.Get("tag"),
 		Search:     v.Get("q"),
 		Sort:       v.Get("sort"),
 		Order:      v.Get("order"),

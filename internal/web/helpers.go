@@ -133,6 +133,7 @@ func queryString(q GalleryQuery, overrides map[string]any) template.URL {
 	set("owner", q.Owner)
 	set("type", q.MediaType)
 	set("status", q.Status)
+	set("tag", q.Tag)
 	set("q", q.Search)
 	set("sort", q.Sort)
 	set("order", q.Order)

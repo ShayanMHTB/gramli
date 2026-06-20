@@ -36,9 +36,40 @@
 
       {{if .Caption}}<p class="caption">{{.Caption}}</p>{{end}}
 
-      {{if .Collections}}
-      <div style="margin-top:10px">{{range .Collections}}<span class="tag">#{{.}}</span>{{end}}</div>
+      {{if .Hashtags}}
+      <div class="hashtags">{{range .Hashtags}}<a class="chip" href="/gallery?q=%23{{.}}">#{{.}}</a>{{end}}</div>
       {{end}}
+
+      {{$sc := .Shortcode}}
+      <div class="organize">
+        <div class="org-row">
+          <span class="org-label">Tags</span>
+          <div class="chips-wrap">
+            {{range .Tags}}
+            <span class="chip">{{.}}<button class="chip-x" title="remove"
+              hx-post="/post/{{$sc}}/untag" hx-vals='{"tag":"{{.}}"}' hx-target="#modal" hx-swap="innerHTML">×</button></span>
+            {{end}}
+            <form class="chip-add" hx-post="/post/{{$sc}}/tags" hx-target="#modal" hx-swap="innerHTML">
+              <input name="tag" placeholder="+ tag" autocomplete="off">
+            </form>
+          </div>
+        </div>
+        <div class="org-row">
+          <span class="org-label">Collections</span>
+          <div class="chips-wrap">
+            {{range .AllCollections}}
+            <button class="chip toggle {{if .Member}}on{{end}}"
+              hx-post="/post/{{$sc}}/collections"
+              hx-vals='{"collection":"{{.Slug}}","member":"{{if .Member}}false{{else}}true{{end}}"}'
+              hx-target="#modal" hx-swap="innerHTML">{{.Name}}</button>
+            {{end}}
+            <form class="chip-add" hx-post="/post/{{$sc}}/collections" hx-target="#modal" hx-swap="innerHTML">
+              <input name="collection" placeholder="+ new collection" autocomplete="off">
+              <input type="hidden" name="member" value="true">
+            </form>
+          </div>
+        </div>
+      </div>
 
       <div class="kv">
         <span class="k">Shortcode</span><span>{{.Shortcode}}</span>
@@ -56,6 +87,7 @@
         <button class="btn ghost" onclick="copyText('{{.PostURL}}', this)">Copy URL</button>
         <button class="btn ghost" onclick="copyText('{{.Shortcode}}', this)">Copy code</button>
         <button class="btn ghost" data-close onclick="closeModal()">Close</button>
+        <button class="btn danger" onclick="deletePost('{{.Shortcode}}')">Delete</button>
       </div>
     </div>
   </div>
