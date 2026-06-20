@@ -74,6 +74,20 @@ func get(t *testing.T, srv *httptest.Server, path string, htmx bool) (int, strin
 	return resp.StatusCode, string(body)
 }
 
+func post(t *testing.T, srv *httptest.Server, path, form string) (int, string) {
+	t.Helper()
+	req, _ := http.NewRequest("POST", srv.URL+path, strings.NewReader(form))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("HX-Request", "true")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("POST %s: %v", path, err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	return resp.StatusCode, string(body)
+}
+
 // assertNoTemplateError fails if a rendered page leaked a template error.
 func assertNoTemplateError(t *testing.T, path, body string) {
 	t.Helper()
@@ -152,6 +166,54 @@ func TestExportEndpoints(t *testing.T) {
 	_, filtered := get(t, srv, "/export?format=csv&owner=bob", false)
 	if !strings.Contains(filtered, "BBB222") || strings.Contains(filtered, "AAA111") {
 		t.Errorf("filtered export wrong:\n%s", filtered)
+	}
+}
+
+func TestPostTagMutations(t *testing.T) {
+	srv := newTestServer(t)
+	code, body := post(t, srv, "/post/AAA111/tags", "tag=design")
+	if code != 200 || !strings.Contains(body, "design") {
+		t.Fatalf("add tag failed: %d\n%s", code, body)
+	}
+	// The tag now filters the gallery.
+	_, g := get(t, srv, "/gallery?tag=design", true)
+	if !strings.Contains(g, "AAA111") {
+		t.Errorf("tag filter should find the tagged post")
+	}
+	// Remove it again.
+	_, body2 := post(t, srv, "/post/AAA111/untag", "tag=design")
+	if strings.Contains(body2, ">design<") {
+		t.Errorf("tag should be gone after untag:\n%s", body2)
+	}
+}
+
+func TestPostCollectionMutations(t *testing.T) {
+	srv := newTestServer(t)
+	code, body := post(t, srv, "/post/AAA111/collections", "collection=Faves&member=true")
+	if code != 200 || !strings.Contains(body, "Faves") {
+		t.Fatalf("add to collection failed: %d\n%s", code, body)
+	}
+	if !strings.Contains(body, "toggle on") {
+		t.Errorf("collection should render as active:\n%s", body)
+	}
+	_, g := get(t, srv, "/gallery?collection=faves", true)
+	if !strings.Contains(g, "AAA111") {
+		t.Errorf("collection filter should find the post")
+	}
+}
+
+func TestPostDeleteMutation(t *testing.T) {
+	srv := newTestServer(t)
+	code, _ := post(t, srv, "/post/BBB222/delete", "")
+	if code != 200 {
+		t.Fatalf("delete returned %d", code)
+	}
+	_, g := get(t, srv, "/gallery", false)
+	if strings.Contains(g, "BBB222") {
+		t.Errorf("deleted post should be gone from the gallery")
+	}
+	if code, _ := post(t, srv, "/post/BBB222/delete", ""); code == 200 {
+		t.Errorf("deleting an already-gone post should not 200")
 	}
 }
 
