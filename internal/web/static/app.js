@@ -35,6 +35,18 @@ function modalSlide(delta) {
   if (counter) counter.textContent = cur + 1;
 }
 
+// deletePost removes a post everywhere after confirmation, then drops its tile
+// and closes the modal.
+function deletePost(shortcode) {
+  if (!confirm("Delete this post and its downloaded files? This cannot be undone.")) return;
+  fetch("/post/" + encodeURIComponent(shortcode) + "/delete", { method: "POST" }).then((r) => {
+    if (!r.ok) { alert("Delete failed."); return; }
+    const tile = document.querySelector('.tile[hx-get="/post/' + shortcode + '"]');
+    if (tile) tile.remove();
+    closeModal();
+  });
+}
+
 function copyText(text, btn) {
   const done = () => {
     if (!btn) return;

@@ -138,6 +138,19 @@ gramli sessions prune --archive --yes
 
 Archived cookie files are moved to `.gramli/sessions/archive/<alias>-<timestamp>.cookies.json`.
 
+## Organize (local)
+
+```sh
+gramli collections create "Ideas"
+gramli collections add-post ideas <shortcode>
+gramli collections remove-post ideas <shortcode>
+gramli collections delete ideas --yes
+gramli posts tag <shortcode> design inspiration
+gramli posts untag <shortcode> design
+gramli posts delete <shortcode> --yes            # removes DB rows + files everywhere
+gramli posts delete <shortcode> --with-files=false --yes
+```
+
 ## Account & Profile
 
 ```sh
@@ -156,10 +169,16 @@ gramli web --open                   # also open the browser
 gramli web --port 9000 --no-remote-thumbnails
 ```
 
-The UI offers full-text search (SQLite FTS5), a filterable gallery, a post
-lightbox with album carousel (arrow keys to page media, `j`/`k` between posts,
-`/` to focus search, `Esc` to close), per-creator and per-collection stats, and
-"Export JSON/CSV" of the current filtered view.
+The UI offers full-text search (SQLite FTS5), a filterable gallery (by
+collection, creator, type, status, tag), a post lightbox with album carousel
+(arrow keys to page media, `j`/`k` between posts, `/` to focus search, `Esc` to
+close), per-creator and per-collection stats, and "Export JSON/CSV" of the
+current filtered view.
+
+It is also read-write for **local** organization: from a post you can add/remove
+tags, create and toggle collection membership, and delete the post everywhere
+(DB rows + files). Hashtags in captions are clickable. These mutations stay
+local and the server binds to `127.0.0.1`.
 
 ## Maintenance
 

@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 	"unicode"
+
+	"github.com/shayanmahtabi/gramli/internal/posts"
 )
 
 // parseTime tolerates the several datetime serializations SQLite may hold.
@@ -67,6 +69,7 @@ type GalleryQuery struct {
 	Owner      string
 	MediaType  string
 	Status     string // downloaded | pending | missing | any
+	Tag        string
 	Search     string
 	Sort       string // discovered_at | saved_at | taken_at | owner
 	Order      string // asc | desc
@@ -101,22 +104,33 @@ type PostMedia struct {
 	FileSize   int64
 }
 
+// CollectionMembership is a collection plus whether the current post belongs to
+// it (for the assign UI).
+type CollectionMembership struct {
+	Name   string
+	Slug   string
+	Member bool
+}
+
 // PostDetail is the full view of a single post.
 type PostDetail struct {
-	ID           int64
-	Shortcode    string
-	PostURL      string
-	Owner        string
-	Caption      string
-	MediaType    string
-	Source       string
-	TakenAt      *time.Time
-	SavedAt      *time.Time
-	LikeCount    *int64
-	CommentCount *int64
-	RawJSONPath  string
-	Media        []PostMedia
-	Collections  []string
+	ID             int64
+	Shortcode      string
+	PostURL        string
+	Owner          string
+	Caption        string
+	MediaType      string
+	Source         string
+	TakenAt        *time.Time
+	SavedAt        *time.Time
+	LikeCount      *int64
+	CommentCount   *int64
+	RawJSONPath    string
+	Media          []PostMedia
+	Collections    []string
+	Tags           []string
+	AllCollections []CollectionMembership
+	Hashtags       []string
 }
 
 func loadStats(ctx context.Context, db *sql.DB) (Stats, error) {
@@ -217,6 +231,10 @@ func galleryWhere(q GalleryQuery) ([]string, []any) {
 		where = append(where, `EXISTS (SELECT 1 FROM media m WHERE m.post_id=p.id AND m.download_status='pending')`)
 	case "missing":
 		where = append(where, `EXISTS (SELECT 1 FROM media m WHERE m.post_id=p.id AND m.download_status='missing')`)
+	}
+	if q.Tag != "" {
+		where = append(where, `p.id IN (SELECT pt.post_id FROM post_tags pt JOIN tags t ON t.id=pt.tag_id WHERE t.slug=? OR t.name=?)`)
+		args = append(args, q.Tag, q.Tag)
 	}
 	if q.Search != "" {
 		if match, ok := ftsMatch(q.Search); ok {
@@ -446,15 +464,44 @@ FROM media WHERE post_id=? ORDER BY media_index`, d.ID)
 	crows, err := db.QueryContext(ctx, `
 SELECT c.name FROM collections c JOIN post_collections pc ON pc.collection_id=c.id WHERE pc.post_id=? ORDER BY c.name`, d.ID)
 	if err == nil {
-		defer crows.Close()
 		for crows.Next() {
 			var name string
 			if crows.Scan(&name) == nil {
 				d.Collections = append(d.Collections, name)
 			}
 		}
+		crows.Close()
 	}
+
+	trows, err := db.QueryContext(ctx, `SELECT t.name FROM tags t JOIN post_tags pt ON pt.tag_id=t.id WHERE pt.post_id=? ORDER BY t.name`, d.ID)
+	if err == nil {
+		for trows.Next() {
+			var name string
+			if trows.Scan(&name) == nil {
+				d.Tags = append(d.Tags, name)
+			}
+		}
+		trows.Close()
+	}
+
+	acrows, err := db.QueryContext(ctx, `SELECT c.name, c.slug, EXISTS(SELECT 1 FROM post_collections pc WHERE pc.collection_id=c.id AND pc.post_id=?) FROM collections c ORDER BY c.name`, d.ID)
+	if err == nil {
+		for acrows.Next() {
+			var cm CollectionMembership
+			if acrows.Scan(&cm.Name, &cm.Slug, &cm.Member) == nil {
+				d.AllCollections = append(d.AllCollections, cm)
+			}
+		}
+		acrows.Close()
+	}
+
+	d.Hashtags = posts.ExtractHashtags(d.Caption)
 	return d, nil
+}
+
+// loadAllTags lists tags with their post counts, for the gallery facet.
+func loadAllTags(ctx context.Context, db *sql.DB) []Bucket {
+	return buckets(ctx, db, `SELECT t.name, COUNT(pt.post_id) FROM tags t LEFT JOIN post_tags pt ON pt.tag_id=t.id GROUP BY t.id ORDER BY t.name`)
 }
 
 func scalarInt(ctx context.Context, db *sql.DB, query string, args ...any) int {

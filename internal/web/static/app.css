@@ -202,6 +202,27 @@ h2 { font-size: 17px; margin: 0 0 14px; }
 .tag { display: inline-block; background: var(--bg-elev2); border: 1px solid var(--border); border-radius: 20px; padding: 3px 11px; font-size: 12px; margin: 2px 4px 2px 0; }
 .btn { display: inline-block; background: var(--accent); color: #fff; padding: 8px 14px; border-radius: 9px; font-weight: 600; border: none; cursor: pointer; }
 .btn.ghost { background: var(--bg-elev2); color: var(--text); border: 1px solid var(--border); }
+.btn.danger { background: color-mix(in srgb, var(--bad) 18%, transparent); color: var(--bad); border: 1px solid color-mix(in srgb, var(--bad) 40%, transparent); }
+.btn.danger:hover { background: var(--bad); color: #fff; }
+
+/* organize section (tags + collections) */
+.hashtags { margin-top: 10px; display: flex; flex-wrap: wrap; gap: 6px; }
+.organize { margin-top: 16px; display: flex; flex-direction: column; gap: 12px; }
+.org-row { display: grid; grid-template-columns: 90px 1fr; gap: 10px; align-items: start; }
+.org-label { color: var(--text-dim); font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .4px; padding-top: 6px; }
+.chips-wrap { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.chip {
+  display: inline-flex; align-items: center; gap: 4px;
+  background: var(--bg-elev2); border: 1px solid var(--border); color: var(--text);
+  border-radius: 20px; padding: 4px 11px; font-size: 13px; cursor: pointer;
+}
+.chip:hover { border-color: var(--accent); }
+.chip.toggle.on { background: linear-gradient(90deg, var(--accent), var(--accent2)); color: #fff; border-color: transparent; }
+.chip-x { background: none; border: none; color: inherit; cursor: pointer; font-size: 15px; line-height: 1; padding: 0 0 0 2px; opacity: .7; }
+.chip-x:hover { opacity: 1; }
+.chip-add { display: inline-flex; }
+.chip-add input { background: var(--bg-elev2); border: 1px dashed var(--border); color: var(--text); border-radius: 20px; padding: 4px 11px; font-size: 13px; width: 130px; }
+.chip-add input:focus { outline: none; border-color: var(--accent); border-style: solid; }
 
 .empty { text-align: center; color: var(--text-dim); padding: 60px 20px; }
 .status-pill { font-size: 12px; padding: 2px 8px; border-radius: 7px; font-weight: 700; }

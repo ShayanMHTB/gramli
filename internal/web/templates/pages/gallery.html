@@ -33,6 +33,13 @@
       </datalist>
     </div>
     <div class="group">
+      <label>Tag</label>
+      <input list="tags-list" name="tag" value="{{$q.Tag}}" placeholder="any" autocomplete="off">
+      <datalist id="tags-list">
+        {{range .Data.Tags}}<option value="{{.Label}}">{{end}}
+      </datalist>
+    </div>
+    <div class="group">
       <label>Media type</label>
       <select name="type">
         {{$t := $q.MediaType}}

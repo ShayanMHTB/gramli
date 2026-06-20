@@ -171,6 +171,62 @@ func collectionsCmd(st *appState) *cobra.Command {
 		_, err = db.Exec(`UPDATE collections SET name = ?, slug = ?, updated_at = datetime('now') WHERE slug = ? OR name = ?`, args[1], args[1], args[0], args[0])
 		return err
 	}})
+	cmd.AddCommand(&cobra.Command{Use: "create <name>", Short: "Create a local collection", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+		db, err := openMigratedDB(st)
+		if err != nil {
+			return err
+		}
+		defer db.Close()
+		slug, err := posts.CreateCollection(cmd.Context(), db.DB, args[0])
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(cmd.OutOrStdout(), "Created collection %q (slug: %s)\n", args[0], slug)
+		return nil
+	}})
+	cmd.AddCommand(&cobra.Command{Use: "delete <collection>", Short: "Delete a local collection", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+		db, err := openMigratedDB(st)
+		if err != nil {
+			return err
+		}
+		defer db.Close()
+		if !st.settings.Yes && !st.settings.DryRun {
+			return fmt.Errorf("refusing to delete collection %q without --yes (use --dry-run to preview)", args[0])
+		}
+		if st.settings.DryRun {
+			fmt.Fprintf(cmd.OutOrStdout(), "Would delete collection %q\n", args[0])
+			return nil
+		}
+		if err := posts.DeleteCollection(cmd.Context(), db.DB, args[0]); err != nil {
+			return err
+		}
+		fmt.Fprintf(cmd.OutOrStdout(), "Deleted collection %q\n", args[0])
+		return nil
+	}})
+	cmd.AddCommand(&cobra.Command{Use: "add-post <collection> <shortcode-or-url>", Short: "Add a post to a local collection", Args: cobra.ExactArgs(2), RunE: func(cmd *cobra.Command, args []string) error {
+		db, err := openMigratedDB(st)
+		if err != nil {
+			return err
+		}
+		defer db.Close()
+		if err := posts.SetPostCollection(cmd.Context(), db.DB, args[1], args[0], true); err != nil {
+			return err
+		}
+		fmt.Fprintf(cmd.OutOrStdout(), "Added %s to %q\n", args[1], args[0])
+		return nil
+	}})
+	cmd.AddCommand(&cobra.Command{Use: "remove-post <collection> <shortcode-or-url>", Short: "Remove a post from a local collection", Args: cobra.ExactArgs(2), RunE: func(cmd *cobra.Command, args []string) error {
+		db, err := openMigratedDB(st)
+		if err != nil {
+			return err
+		}
+		defer db.Close()
+		if err := posts.SetPostCollection(cmd.Context(), db.DB, args[1], args[0], false); err != nil {
+			return err
+		}
+		fmt.Fprintf(cmd.OutOrStdout(), "Removed %s from %q\n", args[1], args[0])
+		return nil
+	}})
 	return cmd
 }
 

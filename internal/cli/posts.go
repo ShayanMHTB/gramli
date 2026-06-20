@@ -35,7 +35,90 @@ func postsCmd(st *appState) *cobra.Command {
 	cmd.AddCommand(postsListCmd(st), postsImportCmd(st), postsShowCmd(st), postsSearchCmd(st), postsMediaCmd(st))
 	cmd.AddCommand(postsSyncCmd(st))
 	cmd.AddCommand(postsCleanCmd(st))
+	cmd.AddCommand(postsDeleteCmd(st), postsTagCmd(st), postsUntagCmd(st))
 	return cmd
+}
+
+// postsDeleteCmd removes a post and (by default) its downloaded files
+// everywhere. Destructive, so it requires --yes unless --dry-run.
+func postsDeleteCmd(st *appState) *cobra.Command {
+	var withFiles bool
+	cmd := &cobra.Command{
+		Use:   "delete <shortcode-or-url>",
+		Short: "Delete a post and its media everywhere (database + files)",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			db, err := openMigratedDB(st)
+			if err != nil {
+				return err
+			}
+			defer db.Close()
+			p, err := posts.Get(cmd.Context(), db.DB, args[0])
+			if err != nil {
+				return fmt.Errorf("POST_NOT_FOUND: %w", err)
+			}
+			if st.settings.DryRun {
+				fmt.Fprintf(cmd.OutOrStdout(), "Would delete %s (with-files=%t)\n", p.Shortcode, withFiles)
+				return nil
+			}
+			if !st.settings.Yes {
+				return fmt.Errorf("refusing to delete %s without --yes (use --dry-run to preview)", p.Shortcode)
+			}
+			removed, err := posts.DeletePost(cmd.Context(), db.DB, filepath.Join(st.settings.DataDir, "downloads"), p.Shortcode, withFiles)
+			if err != nil {
+				return err
+			}
+			if st.settings.JSON {
+				return printJSON(cmd.OutOrStdout(), map[string]any{"deleted": p.Shortcode, "filesRemoved": removed})
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "Deleted %s (%d file(s) removed)\n", p.Shortcode, removed)
+			return nil
+		},
+	}
+	cmd.Flags().BoolVar(&withFiles, "with-files", true, "Also delete downloaded media files")
+	return cmd
+}
+
+func postsTagCmd(st *appState) *cobra.Command {
+	return &cobra.Command{
+		Use:   "tag <shortcode-or-url> <tag>...",
+		Short: "Add local tags to a post",
+		Args:  cobra.MinimumNArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			db, err := openMigratedDB(st)
+			if err != nil {
+				return err
+			}
+			defer db.Close()
+			for _, t := range args[1:] {
+				if err := posts.AddTag(cmd.Context(), db.DB, args[0], t); err != nil {
+					return err
+				}
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "Tagged %s: %s\n", args[0], strings.Join(args[1:], ", "))
+			return nil
+		},
+	}
+}
+
+func postsUntagCmd(st *appState) *cobra.Command {
+	return &cobra.Command{
+		Use:   "untag <shortcode-or-url> <tag>",
+		Short: "Remove a local tag from a post",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			db, err := openMigratedDB(st)
+			if err != nil {
+				return err
+			}
+			defer db.Close()
+			if err := posts.RemoveTag(cmd.Context(), db.DB, args[0], args[1]); err != nil {
+				return err
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "Untagged %s: %s\n", args[0], args[1])
+			return nil
+		},
+	}
 }
 
 // postsCleanCmd removes orphaned post records (no media rows), optionally scoped
