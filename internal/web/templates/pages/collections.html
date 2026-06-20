@@ -1,0 +1,19 @@
+{{define "content"}}
+<div class="page-head">
+  <h1>Collections</h1>
+  <p class="subtle">{{len .Data.Collections}} collections</p>
+</div>
+<div class="coll-grid">
+  {{- range .Data.Collections}}
+  <a class="coll" href="/gallery?collection={{.Slug}}">
+    <div class="cover"><img loading="lazy" src="/thumb/{{.ThumbID}}" alt=""></div>
+    <div class="body">
+      <div class="n">{{.Name}}</div>
+      <div class="c">{{humanCount .Count}} posts</div>
+    </div>
+  </a>
+  {{- else}}
+  <div class="empty">No collections yet.</div>
+  {{- end}}
+</div>
+{{end}}

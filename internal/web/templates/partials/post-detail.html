@@ -1,0 +1,50 @@
+{{define "post-detail"}}
+{{- with .Post}}
+<div class="modal-backdrop" onclick="closeModal(event)">
+  <div class="modal">
+    <div class="modal-head">
+      <h2 style="margin:0">{{if .Owner}}@{{.Owner}}{{else}}{{.Shortcode}}{{end}}</h2>
+      <button class="icon-btn" data-close onclick="closeModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="media-stack">
+        {{- range .Media}}
+          {{if and .Downloaded (eq .Type "video")}}
+            <video controls preload="metadata" poster="/thumb/{{.ID}}" src="/media/{{.ID}}"></video>
+          {{else if .Downloaded}}
+            <img loading="lazy" src="/media/{{.ID}}" alt="">
+          {{else}}
+            <img loading="lazy" src="/thumb/{{.ID}}" alt="">
+          {{end}}
+        {{- else}}
+          <img src="/thumb/0" alt="">
+        {{- end}}
+      </div>
+
+      {{if .Caption}}<p style="margin-top:16px; white-space:pre-wrap">{{.Caption}}</p>{{end}}
+
+      {{if .Collections}}
+        <div style="margin-top:12px">
+          {{range .Collections}}<span class="tag">#{{.}}</span>{{end}}
+        </div>
+      {{end}}
+
+      <div class="kv">
+        <span class="k">Shortcode</span><span>{{.Shortcode}}</span>
+        <span class="k">Type</span><span>{{mediaIcon .MediaType}} {{.MediaType}} · {{len .Media}} item(s)</span>
+        <span class="k">Source</span><span>{{.Source}}</span>
+        <span class="k">Media</span>
+        <span>
+          {{range .Media}}<span class="status-pill {{.Status}}">{{.Status}}</span> {{end}}
+        </span>
+      </div>
+
+      <div style="margin-top:18px; display:flex; gap:10px">
+        <a class="btn" href="{{.PostURL}}" target="_blank" rel="noopener noreferrer">Open on Instagram ↗</a>
+        <button class="btn ghost" data-close onclick="closeModal()">Close</button>
+      </div>
+    </div>
+  </div>
+</div>
+{{- end}}
+{{end}}

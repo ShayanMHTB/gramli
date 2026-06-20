@@ -1,0 +1,73 @@
+{{define "content"}}
+{{- $q := .Data.Query}}
+<div class="page-head">
+  <h1>Gallery</h1>
+  <p class="subtle">{{humanCount .Data.Total}} posts</p>
+</div>
+
+<div class="gallery-layout">
+  <form class="filters" hx-get="/gallery" hx-target="#grid" hx-swap="innerHTML" hx-push-url="true"
+        hx-trigger="change, keyup changed delay:350ms from:#search">
+    <div class="group">
+      <label for="search">Search</label>
+      <input id="search" type="search" name="q" value="{{$q.Search}}" placeholder="caption, @owner, code" autocomplete="off">
+    </div>
+    <div class="group">
+      <label>Collection</label>
+      <select name="collection">
+        <option value="">All</option>
+        {{range .Data.Collections}}<option value="{{.Slug}}" {{if eq $q.Collection .Slug}}selected{{end}}>{{.Name}} ({{.Count}})</option>{{end}}
+      </select>
+    </div>
+    <div class="group">
+      <label>Creator</label>
+      <input list="owners-list" name="owner" value="{{$q.Owner}}" placeholder="any" autocomplete="off">
+      <datalist id="owners-list">
+        {{range .Data.Owners}}<option value="{{.Label}}">{{end}}
+      </datalist>
+    </div>
+    <div class="group">
+      <label>Media type</label>
+      <select name="type">
+        {{$t := $q.MediaType}}
+        <option value="" {{if eq $t ""}}selected{{end}}>Any</option>
+        <option value="image" {{if eq $t "image"}}selected{{end}}>Image</option>
+        <option value="video" {{if eq $t "video"}}selected{{end}}>Video</option>
+        <option value="album" {{if eq $t "album"}}selected{{end}}>Album</option>
+      </select>
+    </div>
+    <div class="group">
+      <label>Download status</label>
+      <select name="status">
+        {{$st := $q.Status}}
+        <option value="" {{if eq $st ""}}selected{{end}}>Any</option>
+        <option value="downloaded" {{if eq $st "downloaded"}}selected{{end}}>Downloaded</option>
+        <option value="pending" {{if eq $st "pending"}}selected{{end}}>Pending</option>
+        <option value="missing" {{if eq $st "missing"}}selected{{end}}>Missing</option>
+      </select>
+    </div>
+    <div class="group">
+      <label>Sort</label>
+      <select name="sort">
+        {{$so := $q.Sort}}
+        <option value="discovered_at" {{if eq $so "discovered_at"}}selected{{end}}>Discovered</option>
+        <option value="saved_at" {{if eq $so "saved_at"}}selected{{end}}>Saved</option>
+        <option value="taken_at" {{if eq $so "taken_at"}}selected{{end}}>Taken</option>
+        <option value="owner" {{if eq $so "owner"}}selected{{end}}>Creator</option>
+      </select>
+    </div>
+    <div class="group">
+      <label>Order</label>
+      <select name="order">
+        <option value="desc" {{if eq $q.Order "desc"}}selected{{end}}>Newest first</option>
+        <option value="asc" {{if eq $q.Order "asc"}}selected{{end}}>Oldest first</option>
+      </select>
+    </div>
+    <a class="btn ghost" href="/gallery" style="text-align:center">Reset filters</a>
+  </form>
+
+  <div id="grid" class="grid">
+    {{template "gallery-grid" .Data}}
+  </div>
+</div>
+{{end}}

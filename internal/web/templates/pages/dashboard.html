@@ -1,0 +1,54 @@
+{{define "content"}}
+{{- $s := .Data.Stats}}
+{{- $a := .Data.Account}}
+<div class="page-head">
+  <h1>Dashboard</h1>
+  <p class="subtle">An overview of your local archive.</p>
+</div>
+
+{{if $a.Handle}}
+<div class="card" style="margin-bottom:24px">
+  <div class="profile">
+    {{if $a.ProfilePicURL}}<img class="avatar" src="{{$a.ProfilePicURL}}" alt="">{{else}}<div class="avatar"></div>{{end}}
+    <div class="meta">
+      <h2>{{if $a.FullName}}{{$a.FullName}}{{else}}@{{$a.Handle}}{{end}}{{if $a.IsVerified}} ✓{{end}}</h2>
+      <div class="handle">@{{$a.Handle}}{{if $a.IsPrivate}} · private{{end}}</div>
+      <div class="chips">
+        <span><b>{{humanCount $a.MediaCount}}</b> <span class="subtle">posts</span></span>
+        <span><b>{{humanCount $a.FollowerCount}}</b> <span class="subtle">followers</span></span>
+        <span><b>{{humanCount $a.FollowingCount}}</b> <span class="subtle">following</span></span>
+      </div>
+    </div>
+  </div>
+</div>
+{{end}}
+
+<div class="stats">
+  <div class="stat"><div class="n">{{humanCount $s.Posts}}</div><div class="l">Posts</div></div>
+  <div class="stat"><div class="n">{{humanCount $s.Media}}</div><div class="l">Media items</div></div>
+  <div class="stat"><div class="n">{{humanCount $s.Downloaded}}</div><div class="l">Downloaded</div></div>
+  <div class="stat"><div class="n">{{humanCount $s.Pending}}</div><div class="l">Pending</div></div>
+  <div class="stat"><div class="n">{{humanCount $s.Collections}}</div><div class="l">Collections</div></div>
+  <div class="stat"><div class="n">{{humanCount $s.Owners}}</div><div class="l">Creators</div></div>
+  <div class="stat"><div class="n">{{humanBytes $s.StorageBytes}}</div><div class="l">Storage used</div></div>
+</div>
+
+<div class="cols">
+  <div class="card">
+    <h2>Media types</h2>
+    {{template "barlist" $s.MediaTypes}}
+  </div>
+  <div class="card">
+    <h2>Download status</h2>
+    {{template "barlist" $s.DownloadMix}}
+  </div>
+  <div class="card">
+    <h2>Top creators</h2>
+    {{template "barlist" $s.TopOwners}}
+  </div>
+  <div class="card">
+    <h2>Saved over time</h2>
+    {{template "barlist" $s.Timeline}}
+  </div>
+</div>
+{{end}}

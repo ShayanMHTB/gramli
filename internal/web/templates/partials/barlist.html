@@ -1,0 +1,14 @@
+{{define "barlist"}}
+{{- $max := bmax .}}
+<div class="bars">
+  {{- range .}}
+  <div class="bar-row">
+    <span class="k" title="{{.Label}}">{{.Label}}</span>
+    <span class="bar-track"><span class="bar-fill" style="width:{{pct .Count $max}}%"></span></span>
+    <span class="v">{{humanCount .Count}}</span>
+  </div>
+  {{- else}}
+  <p class="subtle">No data yet.</p>
+  {{- end}}
+</div>
+{{end}}

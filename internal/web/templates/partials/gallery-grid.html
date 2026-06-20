@@ -1,0 +1,20 @@
+{{define "gallery-grid"}}
+{{- range .Items}}
+<a class="tile" hx-get="/post/{{.Shortcode}}" hx-target="#modal" hx-swap="innerHTML">
+  <span class="dot {{if .Downloaded}}downloaded{{else}}pending{{end}}" title="{{if .Downloaded}}downloaded{{else}}not downloaded{{end}}"></span>
+  {{if gt .MediaCount 1}}<span class="badge">{{mediaIcon .MediaType}} {{.MediaCount}}</span>{{else}}<span class="badge">{{mediaIcon .MediaType}}</span>{{end}}
+  <img loading="lazy" src="/thumb/{{.ThumbID}}" alt="">
+  <span class="foot">{{if .Owner}}@{{.Owner}}{{else}}{{.Shortcode}}{{end}}</span>
+</a>
+{{- end}}
+{{- if .HasMore}}
+<div class="sentinel"
+     hx-get="/gallery?{{queryString .Query (dict "offset" (printf "%d" .NextOffset))}}"
+     hx-trigger="revealed"
+     hx-swap="outerHTML">
+  Loading more…
+</div>
+{{- else if not .Items}}
+<div class="empty">No posts match these filters.</div>
+{{- end}}
+{{end}}

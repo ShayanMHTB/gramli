@@ -1,0 +1,28 @@
+{{define "layout"}}<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{.Title}} · Gramli</title>
+  <link rel="stylesheet" href="/static/app.css">
+  <script src="/static/htmx.min.js" defer></script>
+  <script src="/static/app.js" defer></script>
+</head>
+<body>
+  <nav>
+    <a class="brand" href="/">gra<span>mli</span></a>
+    <a class="tab {{if eq .Active "dashboard"}}active{{end}}" href="/">Dashboard</a>
+    <a class="tab {{if eq .Active "gallery"}}active{{end}}" href="/gallery">Gallery</a>
+    <a class="tab {{if eq .Active "collections"}}active{{end}}" href="/collections">Collections</a>
+    <a class="tab {{if eq .Active "owners"}}active{{end}}" href="/owners">Creators</a>
+    <a class="tab {{if eq .Active "downloads"}}active{{end}}" href="/downloads">Downloads</a>
+    <a class="tab {{if eq .Active "account"}}active{{end}}" href="/account">Account</a>
+    <span class="spacer"></span>
+    <button class="icon-btn" onclick="toggleTheme()" title="Toggle theme">◐</button>
+  </nav>
+  <main>
+    {{block "content" .}}{{end}}
+  </main>
+  <div id="modal"></div>
+</body>
+</html>{{end}}

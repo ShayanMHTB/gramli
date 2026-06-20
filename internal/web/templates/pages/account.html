@@ -1,0 +1,31 @@
+{{define "content"}}
+<div class="page-head"><h1>Account</h1></div>
+{{- if .Data.Error}}
+<div class="card empty">
+  <p>No account synced yet.</p>
+  <p class="subtle">Run <code>gramli account sync</code> to fetch your profile.</p>
+</div>
+{{- else}}
+{{- $a := .Data.Account}}
+<div class="card">
+  <div class="profile">
+    {{if $a.ProfilePicURL}}<img class="avatar" src="{{$a.ProfilePicURL}}" alt="">{{else}}<div class="avatar"></div>{{end}}
+    <div class="meta">
+      <h2>{{if $a.FullName}}{{$a.FullName}}{{else}}@{{$a.Handle}}{{end}}{{if $a.IsVerified}} ✓{{end}}</h2>
+      <div class="handle">@{{if $a.Handle}}{{$a.Handle}}{{else}}{{$a.Alias}}{{end}}{{if $a.IsPrivate}} · private{{end}}</div>
+      <div class="chips">
+        <span><b>{{humanCount $a.MediaCount}}</b> <span class="subtle">posts</span></span>
+        <span><b>{{humanCount $a.FollowerCount}}</b> <span class="subtle">followers</span></span>
+        <span><b>{{humanCount $a.FollowingCount}}</b> <span class="subtle">following</span></span>
+      </div>
+    </div>
+  </div>
+  <div class="kv">
+    {{if $a.Category}}<span class="k">Category</span><span>{{$a.Category}}</span>{{end}}
+    {{if $a.ExternalURL}}<span class="k">Link</span><span><a href="{{$a.ExternalURL}}" target="_blank" rel="noopener noreferrer">{{$a.ExternalURL}}</a></span>{{end}}
+    {{if $a.Biography}}<span class="k">Bio</span><span style="white-space:pre-wrap">{{$a.Biography}}</span>{{end}}
+    <span class="k">Local alias</span><span>{{$a.Alias}}</span>
+  </div>
+</div>
+{{- end}}
+{{end}}
