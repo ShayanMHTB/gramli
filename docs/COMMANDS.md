@@ -91,6 +91,8 @@ gramli download status
 
 Use reconcile after large downloads, interrupted runs, manual cleanup, or any case where the file tree and SQLite status may have drifted.
 
+`download run` now reconciles automatically when it finishes, so `download status` and the web UI reflect what's on disk without a manual step. Pass `--no-reconcile` to skip it.
+
 ## Cleanup
 
 Preview cleanup:
