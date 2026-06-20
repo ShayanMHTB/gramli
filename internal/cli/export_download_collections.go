@@ -121,8 +121,43 @@ func collectionsCmd(st *appState) *cobra.Command {
 		}
 		return rows.Err()
 	}})
-	cmd.AddCommand(&cobra.Command{Use: "sync", Short: "Sync collections", RunE: func(cmd *cobra.Command, args []string) error {
-		return fmt.Errorf("collections sync is not implemented yet")
+	cmd.AddCommand(&cobra.Command{Use: "sync", Short: "Sync saved collections from Instagram", RunE: func(cmd *cobra.Command, args []string) error {
+		db, err := openMigratedDB(st)
+		if err != nil {
+			return err
+		}
+		defer db.Close()
+		session := auth.Status(db.DB, "")
+		if !session.Exists || !session.Authenticated {
+			return fmt.Errorf("AUTH_SESSION_MISSING: run gramli auth status --check-remote first")
+		}
+		client := instagram.NewClient(session.CookieFilePath, filepath.Join(st.settings.DataDir, "cache", "collections"))
+		cols, err := client.FetchCollections(cmd.Context())
+		if err != nil {
+			return err
+		}
+		if st.settings.DryRun {
+			fmt.Fprintf(cmd.OutOrStdout(), "Would sync %d collection(s)\n", len(cols))
+			return nil
+		}
+		now := time.Now().UTC()
+		synced := 0
+		for _, c := range cols {
+			name := c.Name
+			if name == "" {
+				name = c.ID
+			}
+			if err := upsertCollection(db.DB, c.ID, name, slugify(name), now); err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "Sync failed for %q: %v\n", name, err)
+				continue
+			}
+			synced++
+		}
+		if st.settings.JSON {
+			return printJSON(cmd.OutOrStdout(), map[string]any{"synced": synced})
+		}
+		fmt.Fprintf(cmd.OutOrStdout(), "Synced %d collection(s)\n", synced)
+		return nil
 	}})
 	cmd.AddCommand(&cobra.Command{Use: "show <collection>", Short: "Show collection", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
 		return runPostsList(cmd, st, posts.ListOptions{Collection: args[0]})
@@ -137,6 +172,60 @@ func collectionsCmd(st *appState) *cobra.Command {
 		return err
 	}})
 	return cmd
+}
+
+// slugify converts a collection name into a URL/CLI-friendly slug.
+func slugify(name string) string {
+	var b strings.Builder
+	prevDash := false
+	for _, r := range strings.ToLower(strings.TrimSpace(name)) {
+		switch {
+		case (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9'):
+			b.WriteRune(r)
+			prevDash = false
+		default:
+			if !prevDash && b.Len() > 0 {
+				b.WriteByte('-')
+				prevDash = true
+			}
+		}
+	}
+	slug := strings.Trim(b.String(), "-")
+	if slug == "" {
+		slug = "collection"
+	}
+	return slug
+}
+
+// upsertCollection inserts or updates a synced Instagram collection, keying on
+// the Instagram collection id and ensuring the local slug stays unique.
+func upsertCollection(db *sql.DB, igID, name, slug string, now time.Time) error {
+	if igID != "" {
+		res, err := db.Exec(`UPDATE collections SET name=?, updated_at=? WHERE instagram_collection_id=?`, name, now, igID)
+		if err != nil {
+			return err
+		}
+		if n, _ := res.RowsAffected(); n > 0 {
+			return nil
+		}
+	}
+	finalSlug := slug
+	for i := 2; ; i++ {
+		var exists int
+		if err := db.QueryRow(`SELECT COUNT(*) FROM collections WHERE slug=?`, finalSlug).Scan(&exists); err != nil {
+			return err
+		}
+		if exists == 0 {
+			break
+		}
+		finalSlug = fmt.Sprintf("%s-%d", slug, i)
+	}
+	var igVal any
+	if igID != "" {
+		igVal = igID
+	}
+	_, err := db.Exec(`INSERT INTO collections(instagram_collection_id,name,slug,discovered_at,created_at,updated_at) VALUES(?,?,?,?,?,?)`, igVal, name, finalSlug, now, now, now)
+	return err
 }
 
 func downloadCmd(st *appState) *cobra.Command {
@@ -171,11 +260,62 @@ func downloadCmd(st *appState) *cobra.Command {
 		fmt.Fprintf(cmd.OutOrStdout(), "Downloaded: %d\nPending: %d\nFailed: %d\nSkipped: %d\nMissing: %d\nUnsupported: %d\n", countMedia(db.DB, "downloaded"), countMedia(db.DB, "pending"), countMedia(db.DB, "failed"), countMedia(db.DB, "skipped"), countMedia(db.DB, "missing"), countMedia(db.DB, "unsupported"))
 		return nil
 	}})
-	cmd.AddCommand(&cobra.Command{Use: "retry", Short: "Retry failed downloads", RunE: func(cmd *cobra.Command, args []string) error {
-		return fmt.Errorf("download retry is not implemented yet")
-	}})
+	cmd.AddCommand(downloadRetryCmd(st))
 	cmd.AddCommand(downloadReconcileCmd(st))
 	cmd.AddCommand(downloadCleanCmd(st))
+	return cmd
+}
+
+// downloadRetryCmd re-queues failed and/or missing media back to 'pending' so
+// the next `download run` will attempt them again. Reversible, so no --yes gate.
+func downloadRetryCmd(st *appState) *cobra.Command {
+	var failed, missing bool
+	cmd := &cobra.Command{
+		Use:   "retry",
+		Short: "Re-queue failed/missing media for the next download run",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			db, err := openMigratedDB(st)
+			if err != nil {
+				return err
+			}
+			defer db.Close()
+
+			var statuses []string
+			if failed {
+				statuses = append(statuses, "failed")
+			}
+			if missing {
+				statuses = append(statuses, "missing")
+			}
+			if len(statuses) == 0 {
+				return fmt.Errorf("nothing to retry: pass --failed and/or --missing")
+			}
+			placeholders := strings.TrimSuffix(strings.Repeat("?,", len(statuses)), ",")
+			argv := make([]any, len(statuses))
+			for i, s := range statuses {
+				argv[i] = s
+			}
+			var n int
+			if err := db.QueryRow("SELECT COUNT(*) FROM media WHERE download_status IN ("+placeholders+")", argv...).Scan(&n); err != nil {
+				return err
+			}
+			if st.settings.DryRun {
+				fmt.Fprintf(cmd.OutOrStdout(), "Would re-queue %d media item(s)\n", n)
+				return nil
+			}
+			updateArgs := append([]any{time.Now().UTC()}, argv...)
+			if _, err := db.Exec("UPDATE media SET download_status='pending', updated_at=? WHERE download_status IN ("+placeholders+")", updateArgs...); err != nil {
+				return err
+			}
+			if st.settings.JSON {
+				return printJSON(cmd.OutOrStdout(), map[string]any{"requeued": n})
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "Re-queued %d media item(s). Run: gramli download run\n", n)
+			return nil
+		},
+	}
+	cmd.Flags().BoolVar(&failed, "failed", true, "Re-queue media marked failed")
+	cmd.Flags().BoolVar(&missing, "missing", false, "Re-queue media marked missing")
 	return cmd
 }
 

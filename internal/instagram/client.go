@@ -22,10 +22,25 @@ import (
 
 var ErrMetadataUnavailable = errors.New("metadata unavailable in fetched Instagram page")
 
+// DefaultBaseURL is the production Instagram web origin. Tests override
+// Client.BaseURL to point at a local httptest server.
+const DefaultBaseURL = "https://www.instagram.com"
+
 type Client struct {
 	HTTP       *http.Client
 	CookieFile string
 	CacheDir   string
+	// BaseURL is the origin all requests are sent to. Empty means DefaultBaseURL.
+	BaseURL string
+}
+
+// url joins the client's base origin with an absolute request path.
+func (c *Client) url(path string) string {
+	base := c.BaseURL
+	if base == "" {
+		base = DefaultBaseURL
+	}
+	return strings.TrimRight(base, "/") + path
 }
 
 type Media struct {
@@ -68,6 +83,7 @@ func NewClient(cookieFile, cacheDir string) *Client {
 		HTTP:       &http.Client{Timeout: 30 * time.Second},
 		CookieFile: cookieFile,
 		CacheDir:   cacheDir,
+		BaseURL:    DefaultBaseURL,
 	}
 }
 
@@ -80,7 +96,13 @@ func (c *Client) FetchPost(ctx context.Context, postURL string) (Metadata, error
 	if err != nil {
 		return Metadata{}, err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, canonicalURL, nil)
+	// canonicalURL is the stored instagram.com permalink; the fetch target is
+	// resolved against BaseURL so tests can redirect it.
+	fetchURL := canonicalURL
+	if u, perr := url.Parse(canonicalURL); perr == nil {
+		fetchURL = c.url(u.Path)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fetchURL, nil)
 	if err != nil {
 		return Metadata{}, err
 	}
@@ -127,7 +149,7 @@ func (c *Client) FetchSavedPosts(ctx context.Context, maxID string) (SavedPage, 
 	if err != nil {
 		return SavedPage{}, err
 	}
-	endpoint := "https://www.instagram.com/api/v1/feed/saved/posts/"
+	endpoint := c.url("/api/v1/feed/saved/posts/")
 	if maxID != "" {
 		u, _ := url.Parse(endpoint)
 		q := u.Query()

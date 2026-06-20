@@ -24,7 +24,7 @@ func dbCmd(st *appState) *cobra.Command {
 				size = info.Size()
 			}
 			if st.settings.JSON {
-				return printJSON(map[string]any{
+				return printJSON(cmd.OutOrStdout(), map[string]any{
 					"path": st.settings.DBPath, "migrationVersion": db.MigrationVersion(), "accounts": db.Count("accounts"), "posts": db.Count("posts"), "media": db.Count("media"), "collections": db.Count("collections"), "sizeBytes": size,
 				})
 			}

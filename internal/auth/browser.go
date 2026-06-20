@@ -149,4 +149,3 @@ func findChrome() (string, error) {
 		install,
 	)
 }
-

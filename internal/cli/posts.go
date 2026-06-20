@@ -34,9 +34,64 @@ func postsCmd(st *appState) *cobra.Command {
 	cmd.Flags().BoolVar(&listAlias, "list", false, "List posts")
 	cmd.AddCommand(postsListCmd(st), postsImportCmd(st), postsShowCmd(st), postsSearchCmd(st), postsMediaCmd(st))
 	cmd.AddCommand(postsSyncCmd(st))
-	cmd.AddCommand(&cobra.Command{Use: "clean", Short: "Clean post records", RunE: func(cmd *cobra.Command, args []string) error {
-		return fmt.Errorf("posts clean is not implemented yet")
-	}})
+	cmd.AddCommand(postsCleanCmd(st))
+	return cmd
+}
+
+// postsCleanCmd removes orphaned post records (no media rows), optionally scoped
+// by source. Destructive, so it requires --yes unless --dry-run is set.
+func postsCleanCmd(st *appState) *cobra.Command {
+	var source string
+	var orphans bool
+	cmd := &cobra.Command{
+		Use:   "clean",
+		Short: "Remove orphaned post records (no media)",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			db, err := openMigratedDB(st)
+			if err != nil {
+				return err
+			}
+			defer db.Close()
+
+			var where []string
+			var argv []any
+			if orphans {
+				where = append(where, "NOT EXISTS (SELECT 1 FROM media m WHERE m.post_id = posts.id)")
+			}
+			if source != "" {
+				where = append(where, "source = ?")
+				argv = append(argv, source)
+			}
+			if len(where) == 0 {
+				return fmt.Errorf("nothing to clean: pass --orphans and/or --source")
+			}
+			cond := strings.Join(where, " AND ")
+
+			var n int
+			if err := db.QueryRow("SELECT COUNT(*) FROM posts WHERE "+cond, argv...).Scan(&n); err != nil {
+				return err
+			}
+			if st.settings.DryRun {
+				fmt.Fprintf(cmd.OutOrStdout(), "Would remove %d post(s)\n", n)
+				return nil
+			}
+			if n > 0 && !st.settings.Yes {
+				return fmt.Errorf("refusing to delete %d post(s) without --yes (use --dry-run to preview)", n)
+			}
+			res, err := db.Exec("DELETE FROM posts WHERE "+cond, argv...)
+			if err != nil {
+				return err
+			}
+			removed, _ := res.RowsAffected()
+			if st.settings.JSON {
+				return printJSON(cmd.OutOrStdout(), map[string]any{"removed": removed})
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "Removed %d post(s)\n", removed)
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&source, "source", "", "Only clean posts from this source (saved|manual-import)")
+	cmd.Flags().BoolVar(&orphans, "orphans", true, "Clean posts that have no media rows")
 	return cmd
 }
 
@@ -157,6 +212,14 @@ func postsListCmd(st *appState) *cobra.Command {
 	var saved bool
 	cmd := &cobra.Command{Use: "list", Short: "List posts", RunE: func(cmd *cobra.Command, args []string) error {
 		_ = saved
+		if d, _ := cmd.Flags().GetBool("downloaded"); d {
+			tv := true
+			opt.Downloaded = &tv
+		}
+		if nd, _ := cmd.Flags().GetBool("not-downloaded"); nd {
+			fv := false
+			opt.Downloaded = &fv
+		}
 		return runPostsList(cmd, st, optWithFormat(opt, format))
 	}}
 	cmd.Flags().IntVar(&opt.Limit, "limit", 50, "Maximum posts to show")
@@ -190,7 +253,7 @@ func runPostsList(cmd *cobra.Command, st *appState, opt posts.ListOptions) error
 		return err
 	}
 	if st.settings.JSON || opt.Format == "json" {
-		return printJSON(data)
+		return printJSON(cmd.OutOrStdout(), data)
 	}
 	if opt.Format == "csv" {
 		fmt.Fprintln(cmd.OutOrStdout(), "shortcode,owner,type,downloaded,url")
@@ -352,7 +415,7 @@ func postsShowCmd(st *appState) *cobra.Command {
 			return fmt.Errorf("POST_NOT_FOUND: %w", err)
 		}
 		if st.settings.JSON {
-			return printJSON(p)
+			return printJSON(cmd.OutOrStdout(), p)
 		}
 		b, _ := json.MarshalIndent(p, "", "  ")
 		fmt.Fprintln(cmd.OutOrStdout(), string(b))
@@ -445,7 +508,7 @@ func postsMediaCmd(st *appState) *cobra.Command {
 				return err
 			}
 			if st.settings.JSON {
-				return printJSON(media)
+				return printJSON(cmd.OutOrStdout(), media)
 			}
 			fmt.Fprintln(cmd.OutOrStdout(), "Index  Type   Status      Local Path  Remote URL")
 			for _, m := range media {
