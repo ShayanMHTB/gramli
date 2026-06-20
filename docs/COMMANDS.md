@@ -120,3 +120,31 @@ gramli export --format json --stdout --pretty
 gramli export --format csv --collection saved --output ./.gramli/exports/saved.csv --overwrite
 gramli export --format markdown --stdout
 ```
+
+## Account & Profile
+
+```sh
+gramli account sync                 # fetch the logged-in profile
+gramli account sync --username someone   # any visible profile
+gramli account show                 # display the stored profile
+gramli account switch --account work     # set the active account alias
+gramli auth refresh                 # re-validate and refresh session status
+```
+
+## Web UI
+
+```sh
+gramli web                          # serve http://127.0.0.1:8787 (read-only)
+gramli web --open                   # also open the browser
+gramli web --port 9000 --no-remote-thumbnails
+```
+
+## Maintenance
+
+```sh
+gramli config set downloads.concurrency 4
+gramli collections sync             # best-effort saved-collection sync
+gramli posts clean --dry-run        # preview orphaned post removal
+gramli posts clean --yes
+gramli download retry --failed --missing   # re-queue for the next run
+```
