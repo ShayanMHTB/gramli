@@ -138,6 +138,19 @@ gramli sessions prune --archive --yes
 
 Archived cookie files are moved to `.gramli/sessions/archive/<alias>-<timestamp>.cookies.json`.
 
+## Organize (local)
+
+```sh
+gramli collections create "Ideas"
+gramli collections add-post ideas <shortcode>
+gramli collections remove-post ideas <shortcode>
+gramli collections delete ideas --yes
+gramli posts tag <shortcode> design inspiration
+gramli posts untag <shortcode> design
+gramli posts delete <shortcode> --yes            # removes DB rows + files everywhere
+gramli posts delete <shortcode> --with-files=false --yes
+```
+
 ## Account & Profile
 
 ```sh
