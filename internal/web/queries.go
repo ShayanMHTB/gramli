@@ -4,8 +4,27 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"sort"
 	"strings"
+	"time"
+	"unicode"
 )
+
+// parseTime tolerates the several datetime serializations SQLite may hold.
+func parseTime(value string) time.Time {
+	for _, layout := range []string{
+		time.RFC3339Nano,
+		"2006-01-02 15:04:05.999999999 -0700 MST",
+		"2006-01-02 15:04:05.999999999-07:00",
+		"2006-01-02 15:04:05.999999999",
+		"2006-01-02 15:04:05",
+	} {
+		if t, err := time.Parse(layout, value); err == nil {
+			return t
+		}
+	}
+	return time.Time{}
+}
 
 // Stats is the dashboard summary of the local archive.
 type Stats struct {
@@ -57,11 +76,13 @@ type GalleryQuery struct {
 
 // CollectionItem is a collection card on the collections page.
 type CollectionItem struct {
-	Name    string
-	Slug    string
-	Count   int
-	ThumbID int64
-	Remote  string
+	Name       string
+	Slug       string
+	Count      int
+	ThumbID    int64
+	Remote     string
+	Downloaded int
+	Storage    int64
 }
 
 // PostMedia is one media row in the post detail view.
@@ -74,19 +95,28 @@ type PostMedia struct {
 	Thumbnail  string
 	Status     string
 	Downloaded bool
+	Width      int64
+	Height     int64
+	Duration   float64
+	FileSize   int64
 }
 
 // PostDetail is the full view of a single post.
 type PostDetail struct {
-	ID          int64
-	Shortcode   string
-	PostURL     string
-	Owner       string
-	Caption     string
-	MediaType   string
-	Source      string
-	Media       []PostMedia
-	Collections []string
+	ID           int64
+	Shortcode    string
+	PostURL      string
+	Owner        string
+	Caption      string
+	MediaType    string
+	Source       string
+	TakenAt      *time.Time
+	SavedAt      *time.Time
+	LikeCount    *int64
+	CommentCount *int64
+	RawJSONPath  string
+	Media        []PostMedia
+	Collections  []string
 }
 
 func loadStats(ctx context.Context, db *sql.DB) (Stats, error) {
@@ -189,11 +219,72 @@ func galleryWhere(q GalleryQuery) ([]string, []any) {
 		where = append(where, `EXISTS (SELECT 1 FROM media m WHERE m.post_id=p.id AND m.download_status='missing')`)
 	}
 	if q.Search != "" {
-		where = append(where, "(p.caption LIKE ? OR p.owner_username LIKE ? OR p.shortcode LIKE ?)")
-		s := "%" + q.Search + "%"
-		args = append(args, s, s, s)
+		if match, ok := ftsMatch(q.Search); ok {
+			where = append(where, "p.id IN (SELECT rowid FROM posts_fts WHERE posts_fts MATCH ?)")
+			args = append(args, match)
+		} else {
+			where = append(where, "(p.caption LIKE ? OR p.owner_username LIKE ? OR p.shortcode LIKE ?)")
+			s := "%" + q.Search + "%"
+			args = append(args, s, s, s)
+		}
 	}
 	return where, args
+}
+
+// ftsMatch turns free-form user input into a safe FTS5 prefix query
+// ("sunset beach" -> "sunset* beach*"). Returns false when nothing usable
+// remains, so the caller can fall back to LIKE.
+func ftsMatch(search string) (string, bool) {
+	var terms []string
+	for _, field := range strings.Fields(search) {
+		var b strings.Builder
+		for _, r := range field {
+			if unicode.IsLetter(r) || unicode.IsDigit(r) {
+				b.WriteRune(r)
+			}
+		}
+		if b.Len() > 0 {
+			terms = append(terms, b.String()+"*")
+		}
+	}
+	if len(terms) == 0 {
+		return "", false
+	}
+	return strings.Join(terms, " "), true
+}
+
+// ExportRow is one post in an exported gallery view.
+type ExportRow struct {
+	Shortcode  string `json:"shortcode"`
+	Owner      string `json:"owner"`
+	MediaType  string `json:"mediaType"`
+	Downloaded bool   `json:"downloaded"`
+	PostURL    string `json:"postUrl"`
+	Caption    string `json:"caption"`
+}
+
+// loadGalleryExport returns every post matching the current gallery filters
+// (no paging), for download as JSON/CSV.
+func loadGalleryExport(ctx context.Context, db *sql.DB, q GalleryQuery) ([]ExportRow, error) {
+	where, args := galleryWhere(q)
+	query := `
+SELECT p.shortcode, COALESCE(p.owner_username,''), COALESCE(NULLIF(p.media_type,''),'unknown'), p.post_url, COALESCE(p.caption,''),
+  EXISTS(SELECT 1 FROM media m WHERE m.post_id=p.id AND m.download_status='downloaded')
+FROM posts p WHERE ` + strings.Join(where, " AND ") + ` ORDER BY p.discovered_at DESC`
+	rows, err := db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []ExportRow
+	for rows.Next() {
+		var r ExportRow
+		if err := rows.Scan(&r.Shortcode, &r.Owner, &r.MediaType, &r.PostURL, &r.Caption, &r.Downloaded); err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
 }
 
 func loadCollections(ctx context.Context, db *sql.DB) ([]CollectionItem, error) {
@@ -201,7 +292,9 @@ func loadCollections(ctx context.Context, db *sql.DB) ([]CollectionItem, error) 
 SELECT c.name, c.slug,
   (SELECT COUNT(*) FROM post_collections pc WHERE pc.collection_id=c.id),
   (SELECT m.id FROM media m JOIN post_collections pc ON pc.post_id=m.post_id WHERE pc.collection_id=c.id ORDER BY m.media_index LIMIT 1),
-  (SELECT COALESCE(p.thumbnail_url,'') FROM posts p JOIN post_collections pc ON pc.post_id=p.id WHERE pc.collection_id=c.id LIMIT 1)
+  (SELECT COALESCE(p.thumbnail_url,'') FROM posts p JOIN post_collections pc ON pc.post_id=p.id WHERE pc.collection_id=c.id LIMIT 1),
+  (SELECT COUNT(DISTINCT m.post_id) FROM media m JOIN post_collections pc ON pc.post_id=m.post_id WHERE pc.collection_id=c.id AND m.download_status='downloaded'),
+  COALESCE((SELECT SUM(m.file_size_bytes) FROM media m JOIN post_collections pc ON pc.post_id=m.post_id WHERE pc.collection_id=c.id AND m.download_status='downloaded'),0)
 FROM collections c ORDER BY c.name`)
 	if err != nil {
 		return nil, err
@@ -211,7 +304,7 @@ FROM collections c ORDER BY c.name`)
 	for rows.Next() {
 		var ci CollectionItem
 		var thumb sql.NullInt64
-		if err := rows.Scan(&ci.Name, &ci.Slug, &ci.Count, &thumb, &ci.Remote); err != nil {
+		if err := rows.Scan(&ci.Name, &ci.Slug, &ci.Count, &thumb, &ci.Remote, &ci.Downloaded, &ci.Storage); err != nil {
 			return nil, err
 		}
 		ci.ThumbID = thumb.Int64
@@ -224,16 +317,113 @@ func loadOwners(ctx context.Context, db *sql.DB) ([]Bucket, error) {
 	return buckets(ctx, db, `SELECT owner_username, COUNT(*) FROM posts WHERE owner_username IS NOT NULL AND owner_username<>'' GROUP BY owner_username ORDER BY COUNT(*) DESC, owner_username ASC`), nil
 }
 
+// OwnerStat is a per-creator rollup for the creators page.
+type OwnerStat struct {
+	Owner      string
+	Posts      int
+	Images     int
+	Videos     int
+	Albums     int
+	Downloaded int
+	Storage    int64
+}
+
+func loadOwnerStats(ctx context.Context, db *sql.DB) ([]OwnerStat, error) {
+	rows, err := db.QueryContext(ctx, `
+SELECT owner_username, COUNT(*),
+  SUM(CASE WHEN media_type='image' THEN 1 ELSE 0 END),
+  SUM(CASE WHEN media_type='video' THEN 1 ELSE 0 END),
+  SUM(CASE WHEN media_type='album' THEN 1 ELSE 0 END)
+FROM posts WHERE owner_username IS NOT NULL AND owner_username<>''
+GROUP BY owner_username`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	stats := map[string]*OwnerStat{}
+	var order []string
+	for rows.Next() {
+		var s OwnerStat
+		if err := rows.Scan(&s.Owner, &s.Posts, &s.Images, &s.Videos, &s.Albums); err != nil {
+			return nil, err
+		}
+		cp := s
+		stats[s.Owner] = &cp
+		order = append(order, s.Owner)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	mrows, err := db.QueryContext(ctx, `
+SELECT p.owner_username, COUNT(*), COALESCE(SUM(m.file_size_bytes),0)
+FROM media m JOIN posts p ON p.id=m.post_id
+WHERE m.download_status='downloaded' AND p.owner_username IS NOT NULL AND p.owner_username<>''
+GROUP BY p.owner_username`)
+	if err != nil {
+		return nil, err
+	}
+	defer mrows.Close()
+	for mrows.Next() {
+		var owner string
+		var dl int
+		var storage int64
+		if err := mrows.Scan(&owner, &dl, &storage); err != nil {
+			return nil, err
+		}
+		if s := stats[owner]; s != nil {
+			s.Downloaded = dl
+			s.Storage = storage
+		}
+	}
+	out := make([]OwnerStat, 0, len(order))
+	for _, o := range order {
+		out = append(out, *stats[o])
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Posts != out[j].Posts {
+			return out[i].Posts > out[j].Posts
+		}
+		return out[i].Owner < out[j].Owner
+	})
+	return out, mrows.Err()
+}
+
 func loadPostDetail(ctx context.Context, db *sql.DB, shortcode string) (PostDetail, error) {
 	var d PostDetail
+	var taken, saved, rawPath sql.NullString
+	var likes, comments sql.NullInt64
 	err := db.QueryRowContext(ctx, `
-SELECT id, shortcode, post_url, COALESCE(owner_username,''), COALESCE(caption,''), COALESCE(NULLIF(media_type,''),'unknown'), COALESCE(source,'')
-FROM posts WHERE shortcode=?`, shortcode).Scan(&d.ID, &d.Shortcode, &d.PostURL, &d.Owner, &d.Caption, &d.MediaType, &d.Source)
+SELECT id, shortcode, post_url, COALESCE(owner_username,''), COALESCE(caption,''), COALESCE(NULLIF(media_type,''),'unknown'), COALESCE(source,''),
+  CAST(taken_at AS TEXT), CAST(saved_at AS TEXT), like_count, comment_count, COALESCE(raw_json_path,'')
+FROM posts WHERE shortcode=?`, shortcode).Scan(&d.ID, &d.Shortcode, &d.PostURL, &d.Owner, &d.Caption, &d.MediaType, &d.Source,
+		&taken, &saved, &likes, &comments, &rawPath)
 	if err != nil {
 		return PostDetail{}, err
 	}
+	if taken.Valid {
+		if t := parseTime(taken.String); !t.IsZero() {
+			d.TakenAt = &t
+		}
+	}
+	if saved.Valid {
+		if t := parseTime(saved.String); !t.IsZero() {
+			d.SavedAt = &t
+		}
+	}
+	if likes.Valid {
+		v := likes.Int64
+		d.LikeCount = &v
+	}
+	if comments.Valid {
+		v := comments.Int64
+		d.CommentCount = &v
+	}
+	d.RawJSONPath = rawPath.String
+
 	rows, err := db.QueryContext(ctx, `
-SELECT id, media_index, COALESCE(media_type,''), COALESCE(remote_url,''), COALESCE(local_path,''), COALESCE(thumbnail_url,''), download_status
+SELECT id, media_index, COALESCE(media_type,''), COALESCE(remote_url,''), COALESCE(local_path,''), COALESCE(thumbnail_url,''), download_status,
+  width, height, duration_seconds, COALESCE(file_size_bytes,0)
 FROM media WHERE post_id=? ORDER BY media_index`, d.ID)
 	if err != nil {
 		return PostDetail{}, err
@@ -241,9 +431,12 @@ FROM media WHERE post_id=? ORDER BY media_index`, d.ID)
 	defer rows.Close()
 	for rows.Next() {
 		var m PostMedia
-		if err := rows.Scan(&m.ID, &m.Index, &m.Type, &m.RemoteURL, &m.LocalPath, &m.Thumbnail, &m.Status); err != nil {
+		var w, h sql.NullInt64
+		var dur sql.NullFloat64
+		if err := rows.Scan(&m.ID, &m.Index, &m.Type, &m.RemoteURL, &m.LocalPath, &m.Thumbnail, &m.Status, &w, &h, &dur, &m.FileSize); err != nil {
 			return PostDetail{}, err
 		}
+		m.Width, m.Height, m.Duration = w.Int64, h.Int64, dur.Float64
 		m.Downloaded = m.Status == "downloaded"
 		d.Media = append(d.Media, m)
 	}

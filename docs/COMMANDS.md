@@ -156,6 +156,11 @@ gramli web --open                   # also open the browser
 gramli web --port 9000 --no-remote-thumbnails
 ```
 
+The UI offers full-text search (SQLite FTS5), a filterable gallery, a post
+lightbox with album carousel (arrow keys to page media, `j`/`k` between posts,
+`/` to focus search, `Esc` to close), per-creator and per-collection stats, and
+"Export JSON/CSV" of the current filtered view.
+
 ## Maintenance
 
 ```sh

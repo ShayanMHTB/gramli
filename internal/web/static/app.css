@@ -135,6 +135,14 @@ h2 { font-size: 17px; margin: 0 0 14px; }
 .list a:hover { border-color: var(--accent); }
 .list .c { color: var(--text-dim); font-variant-numeric: tabular-nums; }
 
+/* ---- stat table ---- */
+.stat-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.stat-table th, .stat-table td { padding: 10px 14px; text-align: left; border-bottom: 1px solid var(--border); }
+.stat-table thead th { color: var(--text-dim); font-size: 12px; text-transform: uppercase; letter-spacing: .4px; }
+.stat-table tbody tr:hover { background: var(--bg-elev2); }
+.stat-table .num { text-align: right; font-variant-numeric: tabular-nums; }
+.stat-table tr:last-child td { border-bottom: none; }
+
 /* ---- collections ---- */
 .coll-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px,1fr)); gap: 14px; }
 .coll { background: var(--bg-elev); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
@@ -149,6 +157,13 @@ h2 { font-size: 17px; margin: 0 0 14px; }
 .modal-backdrop {
   position: fixed; inset: 0; z-index: 60; background: rgba(0,0,0,.7);
   display: flex; align-items: center; justify-content: center; padding: 24px; backdrop-filter: blur(4px);
+  animation: fade .15s ease;
+}
+.modal { animation: pop .15s ease; }
+@keyframes fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes pop { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) {
+  *, ::before, ::after { animation: none !important; transition: none !important; }
 }
 .modal {
   background: var(--bg-elev); border: 1px solid var(--border); border-radius: 16px;
@@ -158,6 +173,30 @@ h2 { font-size: 17px; margin: 0 0 14px; }
 .modal-body { padding: 18px; }
 .media-stack { display: flex; flex-direction: column; gap: 12px; }
 .media-stack img, .media-stack video { width: 100%; border-radius: 10px; background: #000; }
+
+/* carousel */
+.carousel { position: relative; }
+.carousel .slide { display: none; }
+.carousel .slide.active { display: block; }
+.carousel figure { margin: 0; }
+.carousel img, .carousel video { width: 100%; max-height: 70vh; object-fit: contain; border-radius: 10px; background: #000; }
+.carousel img.zoom { max-height: none; object-fit: contain; cursor: zoom-out; }
+.carousel img:not(.zoom) { cursor: zoom-in; }
+.carousel figcaption { color: var(--text-dim); font-size: 12px; margin-top: 6px; }
+.car-nav {
+  position: absolute; top: 42%; transform: translateY(-50%);
+  width: 40px; height: 40px; border-radius: 50%; border: none; cursor: pointer;
+  background: rgba(0,0,0,.55); color: #fff; font-size: 24px; line-height: 1;
+}
+.car-nav:hover { background: rgba(0,0,0,.8); }
+.car-nav.prev { left: 8px; }
+.car-nav.next { right: 8px; }
+.car-count {
+  position: absolute; top: 8px; right: 8px; background: rgba(0,0,0,.6); color: #fff;
+  font-size: 12px; padding: 2px 8px; border-radius: 7px;
+}
+.caption { margin-top: 14px; white-space: pre-wrap; }
+.modal-actions { margin-top: 18px; display: flex; gap: 10px; flex-wrap: wrap; }
 .kv { display: grid; grid-template-columns: 120px 1fr; gap: 6px 14px; margin-top: 14px; font-size: 14px; }
 .kv .k { color: var(--text-dim); }
 .tag { display: inline-block; background: var(--bg-elev2); border: 1px solid var(--border); border-radius: 20px; padding: 3px 11px; font-size: 12px; margin: 2px 4px 2px 0; }

@@ -1,8 +1,14 @@
 {{define "content"}}
 {{- $q := .Data.Query}}
-<div class="page-head">
-  <h1>Gallery</h1>
-  <p class="subtle">{{humanCount .Data.Total}} posts</p>
+<div class="page-head" style="display:flex; justify-content:space-between; align-items:flex-end; gap:12px">
+  <div>
+    <h1>Gallery</h1>
+    <p class="subtle">{{humanCount .Data.Total}} posts</p>
+  </div>
+  <div style="display:flex; gap:8px">
+    <a class="btn ghost" href="/export?{{queryString $q (dict "format" "json")}}">Export JSON</a>
+    <a class="btn ghost" href="/export?{{queryString $q (dict "format" "csv")}}">Export CSV</a>
+  </div>
 </div>
 
 <div class="gallery-layout">

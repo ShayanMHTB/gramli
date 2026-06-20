@@ -81,6 +81,7 @@ func (s *Server) Handler() http.Handler {
 
 	mux.HandleFunc("GET /{$}", s.handleDashboard)
 	mux.HandleFunc("GET /gallery", s.handleGallery)
+	mux.HandleFunc("GET /export", s.handleExport)
 	mux.HandleFunc("GET /post/{shortcode}", s.handlePost)
 	mux.HandleFunc("GET /collections", s.handleCollections)
 	mux.HandleFunc("GET /owners", s.handleOwners)

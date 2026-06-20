@@ -5,6 +5,7 @@ import (
 	"html/template"
 	"net/url"
 	"strings"
+	"time"
 )
 
 func funcMap() template.FuncMap {
@@ -21,7 +22,16 @@ func funcMap() template.FuncMap {
 		"queryString": queryString,
 		"dict":        dict,
 		"bmax":        bmax,
+		"date":        fmtDate,
 	}
+}
+
+// fmtDate renders a nullable timestamp in local time, or "" when absent.
+func fmtDate(t *time.Time) string {
+	if t == nil || t.IsZero() {
+		return ""
+	}
+	return t.Local().Format("2006-01-02 15:04")
 }
 
 // bmax returns the largest count in a bucket slice, for scaling chart bars.
@@ -35,7 +45,7 @@ func bmax(bs []Bucket) int {
 	return m
 }
 
-// humanCount formats an int or int64 count compactly (4.2K, 1.5M).
+// humanCount formats an int/int64 (or pointer thereto) compactly (4.2K, 1.5M).
 func humanCount(v any) string {
 	var n int64
 	switch t := v.(type) {
@@ -43,6 +53,18 @@ func humanCount(v any) string {
 		n = int64(t)
 	case int64:
 		n = t
+	case *int64:
+		if t == nil {
+			return "—"
+		}
+		n = *t
+	case *int:
+		if t == nil {
+			return "—"
+		}
+		n = int64(*t)
+	case nil:
+		return "—"
 	default:
 		return fmt.Sprintf("%v", v)
 	}
