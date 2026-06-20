@@ -246,7 +246,7 @@ func downloadCmd(st *appState) *cobra.Command {
 		c.Flags().Duration("delay", 5*time.Second, "Delay between batch downloads")
 		c.Flags().Bool("metadata", false, "Write metadata sidecar files")
 		c.Flags().Bool("metadata-only", false, "Do not download media")
-		c.Flags().String("output-dir", filepath.Join(st.settings.DataDir, "downloads"), "Output directory")
+		c.Flags().String("output-dir", "", "Output directory (default: <data-dir>/downloads)")
 		c.Flags().Bool("skip-existing", true, "Skip existing files")
 		c.Flags().String("strategy", "auto", "Download strategy: auto, direct, yt-dlp")
 	}
@@ -332,6 +332,9 @@ func downloadPlan(cmd *cobra.Command, st *appState) error {
 	all, _ := cmd.Flags().GetBool("all")
 	delay, _ := cmd.Flags().GetDuration("delay")
 	outputDir, _ := cmd.Flags().GetString("output-dir")
+	if outputDir == "" {
+		outputDir = filepath.Join(st.settings.DataDir, "downloads")
+	}
 	writeMetadata, _ := cmd.Flags().GetBool("metadata")
 	metadataOnly, _ := cmd.Flags().GetBool("metadata-only")
 	skipExisting, _ := cmd.Flags().GetBool("skip-existing")
@@ -668,6 +671,9 @@ func downloadReconcileCmd(st *appState) *cobra.Command {
 				return err
 			}
 			defer db.Close()
+			if outputDir == "" {
+				outputDir = filepath.Join(st.settings.DataDir, "downloads")
+			}
 			report, err := reconcileDownloads(cmd, db.DB, outputDir, apply)
 			if err != nil {
 				return err
@@ -698,7 +704,7 @@ func downloadReconcileCmd(st *appState) *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&outputDir, "output-dir", filepath.Join(st.settings.DataDir, "downloads"), "Downloads directory to scan")
+	cmd.Flags().StringVar(&outputDir, "output-dir", "", "Downloads directory to scan (default: <data-dir>/downloads)")
 	cmd.Flags().BoolVar(&apply, "apply", false, "Update local DB rows from files found on disk")
 	return cmd
 }
