@@ -188,4 +188,17 @@ CREATE INDEX IF NOT EXISTS idx_media_post ON media(post_id);
 	sql: `
 CREATE UNIQUE INDEX IF NOT EXISTS idx_media_post_index ON media(post_id, media_index);
 `,
+}, {
+	version: 3,
+	sql: `
+ALTER TABLE accounts ADD COLUMN handle TEXT;
+ALTER TABLE accounts ADD COLUMN biography TEXT;
+ALTER TABLE accounts ADD COLUMN follower_count INTEGER;
+ALTER TABLE accounts ADD COLUMN following_count INTEGER;
+ALTER TABLE accounts ADD COLUMN media_count INTEGER;
+ALTER TABLE accounts ADD COLUMN is_verified BOOLEAN;
+ALTER TABLE accounts ADD COLUMN external_url TEXT;
+ALTER TABLE accounts ADD COLUMN category TEXT;
+ALTER TABLE accounts ADD COLUMN profile_synced_at DATETIME;
+`,
 }}
