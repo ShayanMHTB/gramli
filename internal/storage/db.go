@@ -225,4 +225,23 @@ CREATE TRIGGER IF NOT EXISTS posts_fts_au AFTER UPDATE ON posts BEGIN
   VALUES (new.id, COALESCE(new.caption,''), COALESCE(new.owner_username,''), new.shortcode);
 END;
 `,
+}, {
+	version: 5,
+	sql: `
+CREATE TABLE IF NOT EXISTS tags (
+  id INTEGER PRIMARY KEY,
+  name TEXT NOT NULL,
+  slug TEXT UNIQUE NOT NULL,
+  created_at DATETIME NOT NULL
+);
+CREATE TABLE IF NOT EXISTS post_tags (
+  post_id INTEGER NOT NULL,
+  tag_id INTEGER NOT NULL,
+  added_at DATETIME NOT NULL,
+  PRIMARY KEY(post_id, tag_id),
+  FOREIGN KEY(post_id) REFERENCES posts(id) ON DELETE CASCADE,
+  FOREIGN KEY(tag_id) REFERENCES tags(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_post_tags_tag ON post_tags(tag_id);
+`,
 }}
