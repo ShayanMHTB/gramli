@@ -306,6 +306,7 @@ func downloadCmd(st *appState) *cobra.Command {
 		c.Flags().Bool("skip-existing", true, "Skip existing files")
 		c.Flags().String("strategy", "auto", "Download strategy: auto, direct, yt-dlp")
 		c.Flags().Bool("no-reconcile", false, "Skip the post-run reconcile that syncs download statuses from disk")
+		c.Flags().Bool("pending", false, "Only download posts that are not yet downloaded")
 	}
 	cmd.AddCommand(run)
 	cmd.AddCommand(&cobra.Command{Use: "status", Short: "Show download status", RunE: func(cmd *cobra.Command, args []string) error {
@@ -415,6 +416,10 @@ func downloadPlan(cmd *cobra.Command, st *appState) error {
 		return fmt.Errorf("--all and --limit cannot be used together")
 	}
 	opt := posts.ListOptions{Collection: collection, Owner: owner, Limit: limit, All: all}
+	if pending, _ := cmd.Flags().GetBool("pending"); pending {
+		notDownloaded := false
+		opt.Downloaded = &notDownloaded
+	}
 	if post != "" {
 		p, err := posts.Get(cmd.Context(), db.DB, post)
 		if err != nil {

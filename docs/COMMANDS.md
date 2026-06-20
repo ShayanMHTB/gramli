@@ -66,6 +66,12 @@ All matching posts:
 gramli download run --collection saved --all --metadata --strategy yt-dlp --delay 5s
 ```
 
+Only the posts not yet downloaded (skips the rest of the collection):
+
+```sh
+gramli download run --collection saved --pending --metadata --strategy yt-dlp --delay 4s
+```
+
 Larger conservative batch:
 
 ```sh
