@@ -121,6 +121,23 @@ gramli export --format csv --collection saved --output ./.gramli/exports/saved.c
 gramli export --format markdown --stdout
 ```
 
+## Sessions
+
+```sh
+gramli sessions list                # all stored sessions (alias, type, active, file)
+gramli logout                       # deactivate the most recent session
+gramli logout --all                 # deactivate all sessions
+gramli logout --delete-session-files
+gramli logout --archive             # move cookie files aside and drop the records
+gramli logout --remove              # permanently delete records + cookie files
+gramli sessions archive personal    # archive a specific session by alias
+gramli sessions remove personal --yes
+gramli sessions prune --yes         # drop all inactive (logged-out) sessions
+gramli sessions prune --archive --yes
+```
+
+Archived cookie files are moved to `.gramli/sessions/archive/<alias>-<timestamp>.cookies.json`.
+
 ## Account & Profile
 
 ```sh

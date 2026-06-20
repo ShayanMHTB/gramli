@@ -82,11 +82,14 @@ func loginCmd(st *appState) *cobra.Command {
 
 func logoutCmd(st *appState) *cobra.Command {
 	var account string
-	var all, deleteFiles bool
+	var all, deleteFiles, archive, remove bool
 	cmd := &cobra.Command{
 		Use:   "logout",
-		Short: "Mark local sessions inactive",
+		Short: "Mark sessions inactive, or archive/remove them",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if archive && remove {
+				return fmt.Errorf("--archive and --remove are mutually exclusive")
+			}
 			db, err := openMigratedDB(st)
 			if err != nil {
 				return err
@@ -94,58 +97,90 @@ func logoutCmd(st *appState) *cobra.Command {
 			defer db.Close()
 			now := time.Now().UTC()
 
-			// Resolve which session scope we are logging out, capturing the
-			// cookie file paths first so we can optionally delete them.
-			var scopeSQL string
+			// Resolve the scoped sessions (id, cookie path, alias) up front so we
+			// can deactivate, archive, or remove them as requested.
+			var scope string
 			var scopeArgs []any
 			switch {
 			case all:
-				scopeSQL = ""
+				scope = "1=1"
 			case account != "":
-				scopeSQL = ` WHERE account_id IN (SELECT id FROM accounts WHERE username = ?)`
+				scope = "a.username = ?"
 				scopeArgs = []any{account}
 			default:
-				scopeSQL = ` WHERE id = (SELECT id FROM sessions ORDER BY updated_at DESC LIMIT 1)`
+				scope = "s.id = (SELECT id FROM sessions ORDER BY updated_at DESC LIMIT 1)"
 			}
-
-			var paths []string
-			if deleteFiles {
-				rows, qerr := db.Query(`SELECT COALESCE(cookie_file_path,'') FROM sessions`+scopeSQL, scopeArgs...)
-				if qerr != nil {
-					return qerr
-				}
-				for rows.Next() {
-					var p string
-					if rows.Scan(&p) == nil && p != "" {
-						paths = append(paths, p)
-					}
-				}
-				rows.Close()
-			}
-
-			updateArgs := append([]any{now}, scopeArgs...)
-			if _, err = db.Exec(`UPDATE sessions SET authenticated = 0, updated_at = ?`+scopeSQL, updateArgs...); err != nil {
+			rows, err := db.Query(`SELECT s.id, COALESCE(s.cookie_file_path,''), COALESCE(a.username,'')
+FROM sessions s LEFT JOIN accounts a ON a.id = s.account_id WHERE `+scope, scopeArgs...)
+			if err != nil {
 				return err
 			}
-
-			deleted := 0
-			for _, p := range paths {
-				if err := os.Remove(p); err == nil {
-					deleted++
-				} else if !os.IsNotExist(err) {
-					fmt.Fprintf(cmd.ErrOrStderr(), "Could not delete %s: %v\n", p, err)
-				}
+			type sess struct {
+				id    int64
+				path  string
+				alias string
 			}
-			fmt.Fprintln(cmd.OutOrStdout(), "Logged out locally")
-			if deleteFiles {
-				fmt.Fprintf(cmd.OutOrStdout(), "Deleted %d session file(s)\n", deleted)
+			var scoped []sess
+			for rows.Next() {
+				var s sess
+				if err := rows.Scan(&s.id, &s.path, &s.alias); err != nil {
+					rows.Close()
+					return err
+				}
+				scoped = append(scoped, s)
+			}
+			rows.Close()
+
+			switch {
+			case remove:
+				for _, s := range scoped {
+					if err := auth.DeleteSession(db.DB, s.id, s.path, true); err != nil {
+						return err
+					}
+				}
+				fmt.Fprintf(cmd.OutOrStdout(), "Removed %d session(s)\n", len(scoped))
+			case archive:
+				for _, s := range scoped {
+					if _, err := auth.ArchiveCookieFile(st.archiveDir(), s.path, s.alias, now); err != nil {
+						return err
+					}
+					if err := auth.DeleteSession(db.DB, s.id, "", false); err != nil {
+						return err
+					}
+				}
+				fmt.Fprintf(cmd.OutOrStdout(), "Archived %d session(s) to %s\n", len(scoped), st.archiveDir())
+			default:
+				for _, s := range scoped {
+					if _, err := db.Exec(`UPDATE sessions SET authenticated = 0, updated_at = ? WHERE id = ?`, now, s.id); err != nil {
+						return err
+					}
+				}
+				deleted := 0
+				if deleteFiles {
+					for _, s := range scoped {
+						if s.path == "" {
+							continue
+						}
+						if err := os.Remove(s.path); err == nil {
+							deleted++
+						} else if !os.IsNotExist(err) {
+							fmt.Fprintf(cmd.ErrOrStderr(), "Could not delete %s: %v\n", s.path, err)
+						}
+					}
+				}
+				fmt.Fprintln(cmd.OutOrStdout(), "Logged out locally")
+				if deleteFiles {
+					fmt.Fprintf(cmd.OutOrStdout(), "Deleted %d session file(s)\n", deleted)
+				}
 			}
 			return nil
 		},
 	}
 	cmd.Flags().StringVar(&account, "account", "", "Account alias")
-	cmd.Flags().BoolVar(&all, "all", false, "Logout all local sessions")
-	cmd.Flags().BoolVar(&deleteFiles, "delete-session-files", false, "Delete local session files")
+	cmd.Flags().BoolVar(&all, "all", false, "Apply to all local sessions")
+	cmd.Flags().BoolVar(&deleteFiles, "delete-session-files", false, "Delete local session files (with default deactivate)")
+	cmd.Flags().BoolVar(&archive, "archive", false, "Archive the session(s): move cookie files aside and drop the records")
+	cmd.Flags().BoolVar(&remove, "remove", false, "Permanently remove the session record(s) and cookie files")
 	return cmd
 }
 

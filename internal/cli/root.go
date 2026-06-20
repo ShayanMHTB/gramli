@@ -66,7 +66,7 @@ func NewRootCommand() *cobra.Command {
 	root.PersistentFlags().BoolVar(&st.settings.Yes, "yes", false, "Auto-confirm prompts")
 	root.PersistentFlags().BoolVar(&st.settings.DryRun, "dry-run", false, "Show what would happen without changing anything")
 
-	root.AddCommand(initCmd(st), configCmd(st), doctorCmd(st), dbCmd(st), authCmd(st), loginCmd(st), logoutCmd(st), accountCmd(st), postsCmd(st), collectionsCmd(st), downloadCmd(st), exportCmd(st), webCmd(st))
+	root.AddCommand(initCmd(st), configCmd(st), doctorCmd(st), dbCmd(st), authCmd(st), loginCmd(st), logoutCmd(st), sessionsCmd(st), accountCmd(st), postsCmd(st), collectionsCmd(st), downloadCmd(st), exportCmd(st), webCmd(st))
 	root.AddCommand(&cobra.Command{
 		Use:   "completion [bash|zsh|fish|powershell]",
 		Short: "Generate shell completion scripts",
